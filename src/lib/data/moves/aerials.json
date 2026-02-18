@@ -1,0 +1,26 @@
+[
+	{
+		"id": "moonsault", "name": "Moonsault", "category": "aerial",
+		"windupFrames": 25, "activeFrames": 5, "recoveryFrames": 20,
+		"baseDamage": 20, "staminaCost": 18, "region": "body", "momentumGain": 12,
+		"hitbox": { "range": 2.0, "angle": 180 },
+		"canBeReversed": true, "reversalWindow": 15, "requiresGrapple": null,
+		"animations": { "windup": "moonsault_windup", "active": "moonsault_active", "recovery": "moonsault_recovery" }
+	},
+	{
+		"id": "crossbody", "name": "Diving Crossbody", "category": "aerial",
+		"windupFrames": 20, "activeFrames": 4, "recoveryFrames": 18,
+		"baseDamage": 15, "staminaCost": 14, "region": "body", "momentumGain": 10,
+		"hitbox": { "range": 2.5, "angle": 120 },
+		"canBeReversed": true, "reversalWindow": 12, "requiresGrapple": null,
+		"animations": { "windup": "crossbody_windup", "active": "crossbody_active", "recovery": "crossbody_recovery" }
+	},
+	{
+		"id": "frog_splash", "name": "Frog Splash", "category": "aerial",
+		"windupFrames": 30, "activeFrames": 4, "recoveryFrames": 25,
+		"baseDamage": 22, "staminaCost": 20, "region": "body", "momentumGain": 14,
+		"hitbox": { "range": 2.0, "angle": 90 },
+		"canBeReversed": true, "reversalWindow": 18, "requiresGrapple": null,
+		"animations": { "windup": "frog_splash_windup", "active": "frog_splash_active", "recovery": "frog_splash_recovery" }
+	}
+]

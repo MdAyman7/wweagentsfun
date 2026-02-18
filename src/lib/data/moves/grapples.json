@@ -1,0 +1,42 @@
+[
+	{
+		"id": "suplex", "name": "Vertical Suplex", "category": "grapple",
+		"windupFrames": 20, "activeFrames": 10, "recoveryFrames": 15,
+		"baseDamage": 15, "staminaCost": 12, "region": "body", "momentumGain": 8,
+		"hitbox": { "range": 0.5, "angle": 60 },
+		"canBeReversed": true, "reversalWindow": 12, "requiresGrapple": "front_facelock",
+		"animations": { "windup": "suplex_windup", "active": "suplex_active", "recovery": "suplex_recovery" }
+	},
+	{
+		"id": "ddt", "name": "DDT", "category": "grapple",
+		"windupFrames": 15, "activeFrames": 8, "recoveryFrames": 12,
+		"baseDamage": 14, "staminaCost": 10, "region": "head", "momentumGain": 9,
+		"hitbox": { "range": 0.5, "angle": 60 },
+		"canBeReversed": true, "reversalWindow": 10, "requiresGrapple": "front_facelock",
+		"animations": { "windup": "ddt_windup", "active": "ddt_active", "recovery": "ddt_recovery" }
+	},
+	{
+		"id": "neckbreaker", "name": "Neckbreaker", "category": "grapple",
+		"windupFrames": 12, "activeFrames": 8, "recoveryFrames": 10,
+		"baseDamage": 11, "staminaCost": 8, "region": "head", "momentumGain": 6,
+		"hitbox": { "range": 0.5, "angle": 60 },
+		"canBeReversed": true, "reversalWindow": 8, "requiresGrapple": "front_facelock",
+		"animations": { "windup": "neckbreaker_windup", "active": "neckbreaker_active", "recovery": "neckbreaker_recovery" }
+	},
+	{
+		"id": "german_suplex", "name": "German Suplex", "category": "grapple",
+		"windupFrames": 18, "activeFrames": 12, "recoveryFrames": 15,
+		"baseDamage": 18, "staminaCost": 15, "region": "head", "momentumGain": 10,
+		"hitbox": { "range": 0.5, "angle": 60 },
+		"canBeReversed": true, "reversalWindow": 10, "requiresGrapple": "rear_waistlock",
+		"animations": { "windup": "german_windup", "active": "german_active", "recovery": "german_recovery" }
+	},
+	{
+		"id": "backbreaker", "name": "Backbreaker", "category": "grapple",
+		"windupFrames": 16, "activeFrames": 8, "recoveryFrames": 14,
+		"baseDamage": 13, "staminaCost": 11, "region": "body", "momentumGain": 7,
+		"hitbox": { "range": 0.5, "angle": 60 },
+		"canBeReversed": true, "reversalWindow": 10, "requiresGrapple": "front_facelock",
+		"animations": { "windup": "backbreaker_windup", "active": "backbreaker_active", "recovery": "backbreaker_recovery" }
+	}
+]

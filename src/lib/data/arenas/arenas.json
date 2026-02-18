@@ -1,0 +1,26 @@
+[
+	{
+		"id": "standard_arena",
+		"name": "Standard Arena",
+		"ring": { "width": 6.0, "depth": 6.0, "height": 1.2, "ropeCount": 3 },
+		"crowd": { "capacity": 15000, "sections": 4 },
+		"lighting": { "ambientIntensity": 0.3, "spotlightIntensity": 1.5, "spotlightCount": 4 },
+		"features": ["titantron", "entrance_ramp", "barricade"]
+	},
+	{
+		"id": "small_venue",
+		"name": "Small Venue",
+		"ring": { "width": 5.5, "depth": 5.5, "height": 1.0, "ropeCount": 3 },
+		"crowd": { "capacity": 2000, "sections": 2 },
+		"lighting": { "ambientIntensity": 0.4, "spotlightIntensity": 1.0, "spotlightCount": 2 },
+		"features": ["barricade"]
+	},
+	{
+		"id": "stadium",
+		"name": "Grand Stadium",
+		"ring": { "width": 6.0, "depth": 6.0, "height": 1.2, "ropeCount": 3 },
+		"crowd": { "capacity": 80000, "sections": 8 },
+		"lighting": { "ambientIntensity": 0.2, "spotlightIntensity": 2.0, "spotlightCount": 8 },
+		"features": ["titantron", "entrance_ramp", "barricade", "pyro_stage", "led_ring_posts"]
+	}
+]

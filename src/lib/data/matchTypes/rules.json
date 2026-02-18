@@ -1,0 +1,42 @@
+[
+	{
+		"id": "singles",
+		"name": "Singles Match",
+		"minParticipants": 2, "maxParticipants": 2,
+		"winConditions": ["pinfall", "submission", "knockout"],
+		"countOut": true, "dq": true, "ropeBreak": true,
+		"falls": 1, "timeLimit": 1800
+	},
+	{
+		"id": "no_dq",
+		"name": "No Disqualification",
+		"minParticipants": 2, "maxParticipants": 2,
+		"winConditions": ["pinfall", "submission", "knockout"],
+		"countOut": false, "dq": false, "ropeBreak": false,
+		"falls": 1, "timeLimit": 0
+	},
+	{
+		"id": "tag_team",
+		"name": "Tag Team Match",
+		"minParticipants": 4, "maxParticipants": 4,
+		"winConditions": ["pinfall", "submission"],
+		"countOut": true, "dq": true, "ropeBreak": true,
+		"falls": 1, "timeLimit": 1800
+	},
+	{
+		"id": "royal_rumble",
+		"name": "Royal Rumble",
+		"minParticipants": 10, "maxParticipants": 30,
+		"winConditions": ["elimination"],
+		"countOut": false, "dq": false, "ropeBreak": false,
+		"falls": 0, "timeLimit": 0
+	},
+	{
+		"id": "cage",
+		"name": "Steel Cage Match",
+		"minParticipants": 2, "maxParticipants": 2,
+		"winConditions": ["pinfall", "submission", "escape"],
+		"countOut": false, "dq": false, "ropeBreak": false,
+		"falls": 1, "timeLimit": 0
+	}
+]

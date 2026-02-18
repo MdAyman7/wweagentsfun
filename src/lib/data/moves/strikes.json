@@ -1,0 +1,66 @@
+[
+	{
+		"id": "jab", "name": "Jab", "category": "strike",
+		"windupFrames": 3, "activeFrames": 2, "recoveryFrames": 4,
+		"baseDamage": 3, "staminaCost": 2, "region": "head", "momentumGain": 2,
+		"hitbox": { "range": 0.8, "angle": 90 },
+		"canBeReversed": false, "reversalWindow": 0, "requiresGrapple": null,
+		"animations": { "windup": "jab_windup", "active": "jab_active", "recovery": "jab_recovery" }
+	},
+	{
+		"id": "right_hook", "name": "Right Hook", "category": "strike",
+		"windupFrames": 6, "activeFrames": 3, "recoveryFrames": 8,
+		"baseDamage": 7, "staminaCost": 5, "region": "head", "momentumGain": 4,
+		"hitbox": { "range": 0.9, "angle": 120 },
+		"canBeReversed": true, "reversalWindow": 4, "requiresGrapple": null,
+		"animations": { "windup": "hook_windup", "active": "hook_active", "recovery": "hook_recovery" }
+	},
+	{
+		"id": "body_kick", "name": "Body Kick", "category": "strike",
+		"windupFrames": 8, "activeFrames": 3, "recoveryFrames": 10,
+		"baseDamage": 8, "staminaCost": 6, "region": "body", "momentumGain": 4,
+		"hitbox": { "range": 1.2, "angle": 90 },
+		"canBeReversed": true, "reversalWindow": 5, "requiresGrapple": null,
+		"animations": { "windup": "kick_windup", "active": "kick_active", "recovery": "kick_recovery" }
+	},
+	{
+		"id": "uppercut", "name": "European Uppercut", "category": "strike",
+		"windupFrames": 10, "activeFrames": 2, "recoveryFrames": 12,
+		"baseDamage": 10, "staminaCost": 7, "region": "head", "momentumGain": 6,
+		"hitbox": { "range": 0.7, "angle": 60 },
+		"canBeReversed": true, "reversalWindow": 6, "requiresGrapple": null,
+		"animations": { "windup": "uppercut_windup", "active": "uppercut_active", "recovery": "uppercut_recovery" }
+	},
+	{
+		"id": "leg_kick", "name": "Leg Kick", "category": "strike",
+		"windupFrames": 5, "activeFrames": 3, "recoveryFrames": 6,
+		"baseDamage": 5, "staminaCost": 4, "region": "legs", "momentumGain": 3,
+		"hitbox": { "range": 1.0, "angle": 90 },
+		"canBeReversed": false, "reversalWindow": 0, "requiresGrapple": null,
+		"animations": { "windup": "legkick_windup", "active": "legkick_active", "recovery": "legkick_recovery" }
+	},
+	{
+		"id": "clothesline", "name": "Clothesline", "category": "strike",
+		"windupFrames": 12, "activeFrames": 4, "recoveryFrames": 15,
+		"baseDamage": 12, "staminaCost": 8, "region": "head", "momentumGain": 7,
+		"hitbox": { "range": 1.5, "angle": 150 },
+		"canBeReversed": true, "reversalWindow": 8, "requiresGrapple": null,
+		"animations": { "windup": "clothesline_windup", "active": "clothesline_active", "recovery": "clothesline_recovery" }
+	},
+	{
+		"id": "dropkick", "name": "Dropkick", "category": "strike",
+		"windupFrames": 15, "activeFrames": 3, "recoveryFrames": 20,
+		"baseDamage": 14, "staminaCost": 12, "region": "body", "momentumGain": 8,
+		"hitbox": { "range": 1.8, "angle": 60 },
+		"canBeReversed": true, "reversalWindow": 10, "requiresGrapple": null,
+		"animations": { "windup": "dropkick_windup", "active": "dropkick_active", "recovery": "dropkick_recovery" }
+	},
+	{
+		"id": "elbow_strike", "name": "Elbow Strike", "category": "strike",
+		"windupFrames": 4, "activeFrames": 2, "recoveryFrames": 5,
+		"baseDamage": 5, "staminaCost": 3, "region": "head", "momentumGain": 3,
+		"hitbox": { "range": 0.6, "angle": 60 },
+		"canBeReversed": false, "reversalWindow": 0, "requiresGrapple": null,
+		"animations": { "windup": "elbow_windup", "active": "elbow_active", "recovery": "elbow_recovery" }
+	}
+]

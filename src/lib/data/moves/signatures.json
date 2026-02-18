@@ -1,0 +1,50 @@
+[
+	{
+		"id": "steel_press", "name": "Steel Press", "category": "signature",
+		"windupFrames": 20, "activeFrames": 6, "recoveryFrames": 18,
+		"baseDamage": 22, "staminaCost": 15, "region": "body", "momentumGain": 12,
+		"hitbox": { "range": 1.0, "angle": 90 },
+		"canBeReversed": true, "reversalWindow": 12, "requiresGrapple": "front_facelock",
+		"animations": { "windup": "steel_press_windup", "active": "steel_press_active", "recovery": "steel_press_recovery" }
+	},
+	{
+		"id": "phoenix_kick", "name": "Phoenix Kick", "category": "signature",
+		"windupFrames": 18, "activeFrames": 4, "recoveryFrames": 20,
+		"baseDamage": 20, "staminaCost": 14, "region": "head", "momentumGain": 14,
+		"hitbox": { "range": 1.5, "angle": 60 },
+		"canBeReversed": true, "reversalWindow": 10, "requiresGrapple": null,
+		"animations": { "windup": "phoenix_kick_windup", "active": "phoenix_kick_active", "recovery": "phoenix_kick_recovery" }
+	},
+	{
+		"id": "iron_curtain", "name": "Iron Curtain", "category": "finisher",
+		"windupFrames": 25, "activeFrames": 8, "recoveryFrames": 20,
+		"baseDamage": 35, "staminaCost": 25, "region": "body", "momentumGain": 0,
+		"hitbox": { "range": 0.8, "angle": 90 },
+		"canBeReversed": true, "reversalWindow": 8, "requiresGrapple": "front_facelock",
+		"animations": { "windup": "iron_curtain_windup", "active": "iron_curtain_active", "recovery": "iron_curtain_recovery" }
+	},
+	{
+		"id": "phoenix_flight", "name": "Phoenix Flight", "category": "finisher",
+		"windupFrames": 30, "activeFrames": 5, "recoveryFrames": 25,
+		"baseDamage": 38, "staminaCost": 30, "region": "body", "momentumGain": 0,
+		"hitbox": { "range": 2.5, "angle": 120 },
+		"canBeReversed": true, "reversalWindow": 15, "requiresGrapple": null,
+		"animations": { "windup": "phoenix_flight_windup", "active": "phoenix_flight_active", "recovery": "phoenix_flight_recovery" }
+	},
+	{
+		"id": "technique_lock", "name": "Technique Lock", "category": "finisher",
+		"windupFrames": 20, "activeFrames": 60, "recoveryFrames": 10,
+		"baseDamage": 2, "staminaCost": 20, "region": "legs", "momentumGain": 0,
+		"hitbox": { "range": 0.5, "angle": 60 },
+		"canBeReversed": true, "reversalWindow": 12, "requiresGrapple": "front_facelock",
+		"animations": { "windup": "technique_lock_windup", "active": "technique_lock_active", "recovery": "technique_lock_recovery" }
+	},
+	{
+		"id": "chaos_driver", "name": "Chaos Driver", "category": "finisher",
+		"windupFrames": 22, "activeFrames": 10, "recoveryFrames": 18,
+		"baseDamage": 36, "staminaCost": 28, "region": "head", "momentumGain": 0,
+		"hitbox": { "range": 0.6, "angle": 90 },
+		"canBeReversed": true, "reversalWindow": 10, "requiresGrapple": "front_facelock",
+		"animations": { "windup": "chaos_driver_windup", "active": "chaos_driver_active", "recovery": "chaos_driver_recovery" }
+	}
+]
