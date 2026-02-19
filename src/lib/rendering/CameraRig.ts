@@ -23,34 +23,34 @@ interface PresetConfig {
 
 const PRESET_CONFIGS: Record<CameraPreset, PresetConfig> = {
 	wide: {
-		offset: new THREE.Vector3(12, 8, 12),
+		offset: new THREE.Vector3(7, 5, 7),
 		tracksTarget: true
 	},
 	closeup: {
-		offset: new THREE.Vector3(1.5, 0.4, 2),
+		offset: new THREE.Vector3(1.0, 0.4, 1.3),
 		tracksTarget: true
 	},
 	over_shoulder: {
-		offset: new THREE.Vector3(-1.2, 1.8, -1.5),
+		offset: new THREE.Vector3(-0.8, 1.0, -1.0),
 		tracksTarget: true
 	},
 	crowd: {
-		offset: new THREE.Vector3(18, 5, 0),
+		offset: new THREE.Vector3(10, 3, 0),
 		tracksTarget: true
 	},
 	top_down: {
-		offset: new THREE.Vector3(0, 20, 0.01),
+		offset: new THREE.Vector3(0, 10, 0.01),
 		tracksTarget: true
 	},
 	hard_cam: {
-		offset: new THREE.Vector3(0, 6, 16),
+		offset: new THREE.Vector3(0, 3.5, 9),
 		tracksTarget: false,
-		fixedLookAt: new THREE.Vector3(0, 1.2, 0)
+		fixedLookAt: new THREE.Vector3(0, 0.5, 0)
 	},
 	entrance: {
-		offset: new THREE.Vector3(0, 3, -18),
+		offset: new THREE.Vector3(0, 2, -10),
 		tracksTarget: false,
-		fixedLookAt: new THREE.Vector3(0, 2, 0)
+		fixedLookAt: new THREE.Vector3(0, 0.5, 0)
 	}
 };
 
@@ -79,10 +79,10 @@ export class CameraRig {
 	private _shakePhase = 0;
 
 	constructor() {
-		this.camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 1000);
+		this.camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 80);
 		this.camera.position.copy(PRESET_CONFIGS.wide.offset);
-		this.camera.lookAt(0, 1.2, 0);
-		this._currentLookAt.set(0, 1.2, 0);
+		this.camera.lookAt(0, 0.5, 0);
+		this._currentLookAt.set(0, 0.5, 0);
 	}
 
 	/**

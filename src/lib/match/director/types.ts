@@ -82,7 +82,10 @@ export type DramaEvent =
 	| { type: 'near_finish'; agentId: string; healthPct: number }
 	| { type: 'momentum_peak'; agentId: string; momentum: number }
 	| { type: 'mistake'; agentId: string }
-	| { type: 'match_end'; winnerId: string; method: string };
+	| { type: 'match_end'; winnerId: string; method: string }
+	| { type: 'finisher_trigger'; attackerId: string; defenderId: string; moveId: string; moveName: string }
+	| { type: 'finisher_impact'; attackerId: string; damage: number; knockdownForced: boolean }
+	| { type: 'counter_finisher'; defenderId: string; attackerId: string };
 
 // ─── Cinematic Cues ─────────────────────────────────────────────────
 

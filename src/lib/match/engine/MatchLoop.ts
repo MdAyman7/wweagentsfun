@@ -93,17 +93,23 @@ export interface WrestlerInput {
 	build: 'light' | 'medium' | 'heavy';
 }
 
-/** Decision cooldown in ticks between AI actions */
-const DECISION_INTERVAL = 20; // ~3 decisions per second
+/** Decision cooldown in ticks between AI combat actions (attack/block/taunt). */
+const DECISION_INTERVAL = 42; // ~1.4 decisions per second — slow, cinematic pacing
+
+/** Decision cooldown for movement re-evaluation (faster — keeps fighters engaged). */
+const MOVE_DECISION_INTERVAL = 6; // ~10 re-evaluations per second — responsive movement
 
 /** Health threshold for knockdown check */
-const KNOCKDOWN_HEALTH_THRESHOLD = 0.15;
+const KNOCKDOWN_HEALTH_THRESHOLD = 0.12;
 
-/** TKO: 3 knockdowns = automatic loss */
-const TKO_KNOCKDOWN_LIMIT = 3;
+/** TKO: 4 knockdowns = automatic loss */
+const TKO_KNOCKDOWN_LIMIT = 4;
+
+/** Cooldown in ticks after a knockdown before another knockdown can occur */
+const KNOCKDOWN_COOLDOWN = 300; // 5 seconds between knockdowns — dramatic spacing
 
 /** Base knockback speed applied to defender on hit (units/second). */
-const KNOCKBACK_BASE_SPEED = 3.0;
+const KNOCKBACK_BASE_SPEED = 8.0;
 
 /** Fixed delta time for 60Hz simulation (seconds). */
 const DT = 1 / 60;
@@ -186,6 +192,9 @@ export class MatchLoop {
 	 * The rendering layer reads and drains these each frame to spawn VFX.
 	 */
 	private _pendingHitEvents: HitImpactEvent[] = [];
+
+	/** Tracks last knockdown tick per agent (cooldown between knockdowns). */
+	private readonly lastKnockdownTick: Map<string, number> = new Map();
 
 	/** Optional debug logger — attached via setDebugger(). */
 	private _debugger: MatchDebugger | null = null;
@@ -482,10 +491,15 @@ export class MatchLoop {
 
 			const action = brain.decide(agentState, opponent, ctx, mods);
 
-			// Reset decision timer (speed modifier affects pacing)
+			// Reset decision timer based on action type
+			// Movement uses a shorter interval so fighters re-evaluate quickly while
+			// closing distance. Combat actions use the full interval.
 			const speedMod = mods ? mods.speed : 1.0;
-			const adjustedInterval = Math.round(DECISION_INTERVAL / speedMod);
-			this.decisionTimers.set(agentState.id, clamp(adjustedInterval, 10, 30));
+			const baseInterval = (action.type === 'move' || action.type === 'idle')
+				? MOVE_DECISION_INTERVAL
+				: DECISION_INTERVAL;
+			const adjustedInterval = Math.round(baseInterval / speedMod);
+			this.decisionTimers.set(agentState.id, clamp(adjustedInterval, 4, 30));
 
 			switch (action.type) {
 				case 'move': {
@@ -510,14 +524,14 @@ export class MatchLoop {
 						moveId: action.moveId
 					});
 
-					// Deduct stamina, then push a short attack that will auto-miss
+					// Deduct reduced stamina for the whiff
 					this.state = {
 						...this.state,
 						agents: this.state.agents.map((a) => {
 							if (a.id !== agentState.id) return a;
 							return {
 								...a,
-								stamina: clamp(a.stamina - move.staminaCost * 0.7, 0, a.maxStamina),
+								stamina: clamp(a.stamina - move.staminaCost * 0.4, 0, a.maxStamina),
 								stats: { ...a.stats, movesMissed: a.stats.movesMissed + 1 }
 							};
 						}) as [AgentState, AgentState]
@@ -525,12 +539,17 @@ export class MatchLoop {
 
 					// Push as a REQUEST_ATTACK into FSM — the move will be resolved as
 					// a miss because we don't set a target, and recovery is extended
+					// Stop movement on mistake commit
+					if (mover) mover.stopMovement();
+
+					// Push as a REQUEST_ATTACK into FSM — short whiff animation
+					// Keep frames short so the fighter isn't locked out for too long
 					fsm.pushEvent({
 						type: 'REQUEST_ATTACK',
 						moveId: action.moveId,
-						windupFrames: move.windupFrames,
+						windupFrames: Math.max(2, Math.round(move.windupFrames * 0.5)),
 						activeFrames: 1, // minimal active
-						recoveryFrames: move.recoveryFrames + 12 // extra recovery penalty
+						recoveryFrames: Math.max(4, Math.round(move.recoveryFrames * 0.6))
 					});
 					break;
 				}
@@ -585,10 +604,13 @@ export class MatchLoop {
 					// When idle, continue approaching if out of range
 					if (mover && distance > mover.range + 0.1) {
 						mover.moveTowardOpponent(opponent.positionX);
+						fsm.pushEvent({ type: 'REQUEST_MOVE', targetX: opponent.positionX });
 					} else if (mover) {
 						mover.stopMovement();
+						fsm.pushEvent({ type: 'REQUEST_IDLE' });
+					} else {
+						fsm.pushEvent({ type: 'REQUEST_IDLE' });
 					}
-					fsm.pushEvent({ type: 'REQUEST_IDLE' });
 					break;
 			}
 		}
@@ -670,7 +692,7 @@ export class MatchLoop {
 		attacker: AgentState,
 		defender: AgentState,
 		attackerFSM: FighterStateMachine,
-		attackerIndex: number
+		_attackerIndex: number
 	): boolean {
 		// 1. Momentum gate
 		if (!this.finisherTable.canAttemptFinisher(attacker.momentum)) return false;
@@ -679,7 +701,7 @@ export class MatchLoop {
 		const defenderHealthPct = defender.health / defender.maxHealth;
 		const attackerMods = this.effectiveMods.get(attacker.id);
 		const isClutch = attackerMods && attackerMods.emotion === 'clutch';
-		if (defenderHealthPct >= 0.35 && !isClutch) return false;
+		if (defenderHealthPct >= 0.45 && !isClutch) return false;
 
 		// 3. Get finisher move from table
 		const movesetId = this.agentMovesetIds.get(attacker.id);
@@ -776,7 +798,6 @@ export class MatchLoop {
 	): boolean {
 		// Only counter during the first 8 frames of setup
 		const setupTimer = attackerFSM.stateTimer;
-		const setupDuration = attackerFSM.context.stateTimer; // unused — use elapsed instead
 		// The timer counts DOWN from setupFrames. Counter window is the FIRST 8 frames.
 		// So counter is available when (setupFrames - stateTimer) < 8, i.e. stateTimer > (setupFrames - 8).
 		// Since we can't easily get setupFrames here, we approximate: only counter when timer is high (early in setup).
@@ -871,6 +892,47 @@ export class MatchLoop {
 				activeMove: fsm.activeMoveId,
 				positionX: fsm.positionX
 			});
+
+			// ── Populate render-facing animation fields ──
+			// These are read-only by the rendering layer for move-specific animations.
+			const activeMoveId = fsm.activeMoveId;
+			const moveDef = activeMoveId ? this.moveRegistry.get(activeMoveId) : null;
+			const comboTracker = this.comboTrackers.get(agentState.id);
+			const comboStep = comboTracker?.currentStep ?? -1;
+			const combo = comboTracker?.comboState;
+			const comboTotalSteps = (combo?.activeComboId && comboTracker)
+				? comboTracker.comboState.currentStep >= 0
+					? this.comboRegistry.get(combo.activeComboId)?.steps.length ?? -1
+					: -1
+				: -1;
+
+			// Compute phaseTotalFrames from move timing data
+			let phaseTotalFrames = 0;
+			if (moveDef) {
+				switch (fsmPhase) {
+					case 'windup': phaseTotalFrames = moveDef.windupFrames; break;
+					case 'active': phaseTotalFrames = moveDef.activeFrames; break;
+					case 'recovery': phaseTotalFrames = moveDef.recoveryFrames; break;
+					default: phaseTotalFrames = fsm.stateTimer; break;
+				}
+			} else {
+				phaseTotalFrames = fsm.stateTimer;
+			}
+
+			this.state = {
+				...this.state,
+				agents: this.state.agents.map((a) => {
+					if (a.id !== agentState.id) return a;
+					return {
+						...a,
+						moveCategory: moveDef?.category ?? null,
+						targetRegion: moveDef?.region ?? null,
+						phaseTotalFrames,
+						comboStep,
+						comboTotalSteps
+					};
+				}) as [AgentState, AgentState]
+			};
 		}
 	}
 
@@ -892,6 +954,21 @@ export class MatchLoop {
 
 			// Update facing direction (always face opponent)
 			mover.updateFacing(opponent.positionX);
+
+			// Auto-approach: fighters in IDLE/MOVING should always be closing distance.
+			// Continuously refresh the movement target so fighters track the opponent
+			// and don't stall at a static position when the opponent moves.
+			const fsmState = fsm.stateId;
+			if (fsmState === 'IDLE' || fsmState === 'MOVING') {
+				const distance = Math.abs(agent.positionX - opponent.positionX);
+				if (distance > mover.range * 0.7) {
+					// Always refresh target toward opponent (track their movement)
+					mover.moveTowardOpponent(opponent.positionX);
+					if (fsmState === 'IDLE') {
+						fsm.pushEvent({ type: 'REQUEST_MOVE', targetX: opponent.positionX });
+					}
+				}
+			}
 
 			// Run kinematic movement update
 			mover.updateMovement(DT, fsm.stateId, opponent.positionX);
@@ -956,6 +1033,28 @@ export class MatchLoop {
 				}
 				break;
 
+			case 'FINISHER_SETUP_START':
+				// Finisher setup began — informational (handled by FSM)
+				break;
+
+			case 'FINISHER_IMPACT_START':
+				// Finisher impact phase began — combat resolution happens in runCombatPhase()
+				break;
+
+			case 'FINISHER_COMPLETED':
+				// Finisher sequence completed — clear any remaining state
+				break;
+
+			case 'FINISHER_COUNTERED': {
+				// Attacker's finisher was countered — they are now stunned
+				// Grant defender a momentum boost (already handled by reducer FINISHER_COUNTER)
+				break;
+			}
+
+			case 'FINISHER_LOCKED':
+				// Defender was locked for opponent's finisher — informational
+				break;
+
 			// Other actions (ENTER_ATTACK, ATTACK_LANDED, MOVE_TICK, etc.)
 			// are informational — the match loop processes combat separately.
 			default:
@@ -967,8 +1066,66 @@ export class MatchLoop {
 		// ── Garbage-collect resolved attacks for agents no longer in 'active' phase ──
 		for (const agentId of this.resolvedAttacks) {
 			const agent = this.state.agents.find((a) => a.id === agentId);
-			if (!agent || agent.phase !== 'active') {
+			if (!agent || (agent.phase !== 'active' && agent.phase !== 'finisher_impact')) {
 				this.resolvedAttacks.delete(agentId);
+			}
+		}
+
+		// ── Resolve finisher impacts — guaranteed hit, no dodge/reversal ──
+		for (const attacker of this.state.agents) {
+			if (attacker.phase !== 'finisher_impact' || !attacker.activeMove) continue;
+			if (this.resolvedAttacks.has(attacker.id)) continue;
+			this.resolvedAttacks.add(attacker.id);
+
+			const movesetId = this.agentMovesetIds.get(attacker.id);
+			const finisherMove = movesetId ? this.finisherTable.getFinisher(movesetId) : undefined;
+			if (!finisherMove) continue;
+
+			const defender = this.state.agents.find((a) => a.id !== attacker.id)!;
+			const defenderFSM = this.fsms.get(defender.id);
+			const attackerMods = this.effectiveMods.get(attacker.id);
+
+			// Resolve finisher damage (guaranteed hit)
+			const result = this.combatResolver.resolveFinisher(
+				attacker, defender, finisherMove, attackerMods
+			);
+
+			// Dispatch FINISHER_IMPACT to reducer (applies damage, drains momentum, logs)
+			this.state = matchReducer(this.state, {
+				type: 'FINISHER_IMPACT',
+				attackerId: attacker.id,
+				defenderId: defender.id,
+				moveId: finisherMove.id,
+				damage: result.damage,
+				knockdownForced: result.knockdownForced
+			});
+
+			// Push FINISHER_IMPACT_RECEIVED to defender FSM
+			const stunFrames = result.knockdownForced ? 40 : 24;
+			defenderFSM?.pushEvent({
+				type: 'FINISHER_IMPACT_RECEIVED',
+				stunFrames,
+				damage: result.damage,
+				knockdownForced: result.knockdownForced
+			});
+
+			// Emit max-intensity HitImpactEvent for VFX
+			this._pendingHitEvents.push({
+				positionX: (attacker.positionX + defender.positionX) / 2,
+				attackerId: attacker.id,
+				defenderId: defender.id,
+				damage: result.damage,
+				critical: false,
+				reversed: false,
+				blocked: false,
+				intensity: 1.0 // max intensity for finishers
+			});
+
+			// Apply knockback to defender
+			const defenderMover = this.movers.get(defender.id);
+			if (defenderMover) {
+				const dir = defender.positionX > attacker.positionX ? 1 : -1;
+				defenderMover.applyKnockback(dir * KNOCKBACK_BASE_SPEED * 2.0);
 			}
 		}
 
@@ -1266,8 +1423,16 @@ export class MatchLoop {
 			const healthPct = agent.health / agent.maxHealth;
 			const fsm = this.fsms.get(agent.id);
 
+			// Cooldown check: don't allow rapid consecutive knockdowns
+			const lastKD = this.lastKnockdownTick.get(agent.id) ?? -999;
+			const ticksSinceKD = this.state.tick - lastKD;
+			if (ticksSinceKD < KNOCKDOWN_COOLDOWN) continue;
+
+			// Only check knockdowns when in stun phase (just been hit)
+			// This prevents constant knockdown checks every tick at low health
+			if (agent.phase !== 'stun') continue;
+
 			// Track near-knockdown events on psych state
-			// (health dropped below threshold but not knocked down yet)
 			if (healthPct <= KNOCKDOWN_HEALTH_THRESHOLD && agent.health > 0) {
 				// Increment near-knockdown counter for psychology system
 				this.state = {
@@ -1288,24 +1453,26 @@ export class MatchLoop {
 				};
 
 				// Chance-based knockdown: lower health = higher knockdown chance
-				const knockdownChance = 0.15 + (1 - healthPct) * 0.4;
+				// Reduced base chance, scales with health deficit
+				const knockdownChance = 0.08 + (1 - healthPct) * 0.25;
 				if (this.rng.chance(knockdownChance)) {
 					this.state = matchReducer(this.state, {
 						type: 'KNOCKDOWN',
 						agentId: agent.id
 					});
-					// Push knockdown into FSM
 					fsm?.pushEvent({ type: 'KNOCKDOWN', durationFrames: 120 });
+					this.lastKnockdownTick.set(agent.id, this.state.tick);
 				}
 			}
 
-			// Auto-knockdown on big hits (health dropped >25% in one hit)
-			if (agent.phase === 'stun' && healthPct <= 0.08) {
+			// Auto-knockdown on critical health (below 5%)
+			if (healthPct <= 0.05 && agent.health > 0) {
 				this.state = matchReducer(this.state, {
 					type: 'KNOCKDOWN',
 					agentId: agent.id
 				});
 				fsm?.pushEvent({ type: 'KNOCKDOWN', durationFrames: 120 });
+				this.lastKnockdownTick.set(agent.id, this.state.tick);
 			}
 		}
 	}
@@ -1459,6 +1626,14 @@ export class MatchLoop {
 		if (longestCombo >= 3) rating += 0.2;
 		if (longestCombo >= 5) rating += 0.3;
 
+		// Finisher completions are spectacular
+		const finishersLanded = a.stats.finishersLanded + b.stats.finishersLanded;
+		rating += clamp(finishersLanded * 0.4, 0, 0.8);
+
+		// Counter-finishers are peak drama
+		const finishersCaught = a.stats.finishersCaught + b.stats.finishersCaught;
+		rating += clamp(finishersCaught * 0.5, 0, 0.5);
+
 		return clamp(Math.round(rating * 10) / 10, 0, 5);
 	}
 }
@@ -1536,7 +1711,14 @@ function createAgentState(input: WrestlerInput, positionX: number): AgentState {
 		},
 		personality: input.personality,
 		psychProfile,
-		psych: createDefaultPsychState(psychProfile)
+		psych: createDefaultPsychState(psychProfile),
+
+		// Render-facing fields (updated during FSM_SYNC)
+		moveCategory: null,
+		targetRegion: null,
+		phaseTotalFrames: 0,
+		comboStep: -1,
+		comboTotalSteps: -1
 	};
 }
 

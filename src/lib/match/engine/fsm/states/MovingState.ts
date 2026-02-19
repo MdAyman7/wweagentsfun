@@ -4,20 +4,21 @@ import type { FighterStateId, FighterContext, FSMEvent } from '../FighterStateId
 /**
  * MOVING — fighter is repositioning on the ring mat.
  *
- * Moves toward ctx.moveTargetX at ctx.moveSpeed per frame.
- * Transitions to IDLE when the target is reached (within tolerance).
+ * Position updates are handled exclusively by the MovementController
+ * in Phase 5 (runMovementPhase). This state does NOT mutate position.
+ * It stays active until a new decision event arrives, or it is
+ * interrupted by combat (hit/knockdown).
  *
  * Transitions OUT:
- *   - Target reached      → IDLE
- *   - HIT_RECEIVED        → STUNNED (interruptible)
- *   - KNOCKDOWN           → KNOCKED_DOWN (interruptible)
- *   - REQUEST_ATTACK      → ATTACK_WINDUP (cancel movement to attack)
- *   - REQUEST_BLOCK       → BLOCKING (cancel movement to block)
+ *   - REQUEST_IDLE         → IDLE (decision cycle re-evaluates)
+ *   - REQUEST_MOVE         → stays in MOVING (refresh target)
+ *   - HIT_RECEIVED         → STUNNED (interruptible)
+ *   - KNOCKDOWN            → KNOCKED_DOWN (interruptible)
+ *   - REQUEST_ATTACK       → ATTACK_WINDUP (cancel movement to attack)
+ *   - REQUEST_BLOCK        → BLOCKING (cancel movement to block)
  *
- * Movement is purely positional (X-axis on ring mat). No physics sim.
+ * The MovementController is the sole authority for positionX writes.
  */
-
-const POSITION_TOLERANCE = 0.05;
 
 export class MovingState extends FighterState {
 	readonly id: FighterStateId = 'MOVING';
@@ -30,19 +31,13 @@ export class MovingState extends FighterState {
 	}
 
 	update(ctx: FighterContext, _dt: number): FighterStateId | null {
-		const dx = ctx.moveTargetX - ctx.positionX;
-		const absDx = Math.abs(dx);
+		// Position updates are handled by MovementController (Phase 5).
+		// This state simply stays active until an event transitions it out.
 
-		if (absDx <= POSITION_TOLERANCE) {
-			// Arrived
-			ctx.positionX = ctx.moveTargetX;
-			ctx.pendingActions.push({ type: 'MOVE_TICK', positionX: ctx.positionX });
-			return 'IDLE';
+		// Count down attack cooldown (fighters can attack from moving state)
+		if (ctx.attackCooldown > 0) {
+			ctx.attackCooldown--;
 		}
-
-		// Step toward target
-		const step = Math.min(ctx.moveSpeed, absDx);
-		ctx.positionX += dx > 0 ? step : -step;
 
 		ctx.pendingActions.push({ type: 'MOVE_TICK', positionX: ctx.positionX });
 		return null;
@@ -72,13 +67,32 @@ export class MovingState extends FighterState {
 				ctx.stateTimer = event.windupFrames;
 				return 'ATTACK_WINDUP';
 
+			case 'REQUEST_COMBO_ATTACK':
+				if (ctx.attackCooldown > 0) return null;
+				ctx.activeMoveId = event.moveId;
+				ctx.stateTimer = event.windupFrames;
+				return 'ATTACK_WINDUP';
+
 			case 'REQUEST_BLOCK':
 				return 'BLOCKING';
+
+			case 'REQUEST_IDLE':
+				return 'IDLE';
+
+			case 'REQUEST_MOVE':
+				// Update target but stay in MOVING
+				ctx.moveTargetX = event.targetX;
+				return null;
 
 			case 'FINISHER_LOCK':
 				// Locked by opponent's finisher — cancel movement
 				ctx.stateTimer = event.lockFrames;
 				return 'FINISHER_LOCKED';
+
+			case 'REQUEST_FINISHER':
+				ctx.activeMoveId = event.moveId;
+				ctx.stateTimer = event.setupFrames;
+				return 'FINISHER_SETUP';
 
 			default:
 				return null;

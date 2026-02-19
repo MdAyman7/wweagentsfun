@@ -9,7 +9,7 @@ import { SeededRandom } from '../../utils/random';
 import { clamp } from '../../utils/math';
 
 /** Ring height constant for focal point calculations. */
-const RING_HEIGHT = 1.2;
+const RING_HEIGHT = 0.3;
 
 /**
  * CameraDirector — converts drama snapshots and events into camera cues.
@@ -85,12 +85,13 @@ export class CameraDirector {
 	private handleDramaEvent(event: DramaEvent, state: MatchState): CameraCue | null {
 		switch (event.type) {
 			case 'knockdown':
+				// Long dramatic hold on knockdown — hold the shot
 				return {
 					type: 'camera',
 					preset: 'top_down',
 					target: this.getAgentTarget(event.agentId, state),
-					transitionSpeed: 8.0,
-					hold: 45
+					transitionSpeed: 6.0,
+					hold: 120 // 2 seconds watching them fall
 				};
 
 			case 'comeback_start':
@@ -98,29 +99,31 @@ export class CameraDirector {
 					type: 'camera',
 					preset: 'crowd',
 					target: this.getAgentTarget(event.agentId, state),
-					transitionSpeed: 6.0,
-					hold: 30
+					transitionSpeed: 5.0,
+					hold: 60 // longer crowd reaction
 				};
 
 			case 'big_hit':
-				if (event.damage >= 15) {
+				// Lower threshold — more hits get dramatic camera
+				if (event.damage >= 8) {
 					return {
 						type: 'camera',
-						preset: 'closeup',
+						preset: event.damage >= 14 ? 'closeup' : 'over_shoulder',
 						target: this.getAgentTarget(event.agentId, state),
 						transitionSpeed: 8.0,
-						hold: 30
+						hold: event.damage >= 14 ? 75 : 50
 					};
 				}
 				return null;
 
 			case 'reversal':
+				// Dramatic snap cut on reversal
 				return {
 					type: 'camera',
 					preset: 'over_shoulder',
 					target: this.getAgentTarget(event.agentId, state),
-					transitionSpeed: 10.0, // snap cut
-					hold: 40
+					transitionSpeed: 10.0,
+					hold: 70
 				};
 
 			case 'near_finish':
@@ -129,7 +132,7 @@ export class CameraDirector {
 					preset: 'closeup',
 					target: this.getAgentTarget(event.agentId, state),
 					transitionSpeed: 10.0,
-					hold: 25
+					hold: 50
 				};
 
 			case 'match_end':
@@ -137,8 +140,8 @@ export class CameraDirector {
 					type: 'camera',
 					preset: 'wide',
 					target: this.getMidpoint(state),
-					transitionSpeed: 3.0, // slow dramatic pull-out
-					hold: 180
+					transitionSpeed: 2.0, // very slow dramatic pull-out
+					hold: 300 // 5 second hold on finish
 				};
 
 			case 'emotion_shift':
@@ -148,11 +151,41 @@ export class CameraDirector {
 						type: 'camera',
 						preset: this.rng.chance(0.5) ? 'closeup' : 'over_shoulder',
 						target: this.getAgentTarget(event.agentId, state),
-						transitionSpeed: 6.0,
-						hold: 40
+						transitionSpeed: 5.0,
+						hold: 70
 					};
 				}
 				return null;
+
+			case 'finisher_trigger':
+				// Snap closeup on attacker during finisher setup
+				return {
+					type: 'camera',
+					preset: 'closeup',
+					target: this.getAgentTarget(event.attackerId, state),
+					transitionSpeed: 10.0,
+					hold: 180 // long hold through the entire finisher sequence
+				};
+
+			case 'finisher_impact':
+				// Top-down on defender after finisher lands
+				return {
+					type: 'camera',
+					preset: 'top_down',
+					target: this.getMidpoint(state),
+					transitionSpeed: 8.0,
+					hold: 120
+				};
+
+			case 'counter_finisher':
+				// Snap to defender who caught the finisher
+				return {
+					type: 'camera',
+					preset: 'closeup',
+					target: this.getAgentTarget(event.defenderId, state),
+					transitionSpeed: 10.0,
+					hold: 90
+				};
 
 			default:
 				return null;
@@ -167,34 +200,34 @@ export class CameraDirector {
 		let transitionSpeed: number;
 
 		if (tension < 0.3) {
-			// Low tension: wide, relaxed cuts
+			// Low tension: wide, slow cinematic lingering
 			preset = this.rng.chance(0.7) ? 'hard_cam' : 'wide';
-			hold = 120 + this.rng.int(0, 60);
-			transitionSpeed = 2.0;
+			hold = 180 + this.rng.int(0, 120);
+			transitionSpeed = 1.5;
 		} else if (tension < 0.6) {
-			// Medium tension: variety
+			// Medium tension: measured variety
 			const roll = this.rng.float(0, 1);
 			if (roll < 0.4) preset = 'wide';
 			else if (roll < 0.7) preset = 'hard_cam';
 			else preset = 'over_shoulder';
-			hold = 60 + this.rng.int(0, 30);
-			transitionSpeed = 4.0;
+			hold = 90 + this.rng.int(0, 60);
+			transitionSpeed = 3.0;
 		} else if (tension < 0.8) {
-			// High tension: closeups, faster
+			// High tension: dramatic closeups, deliberate
 			const roll = this.rng.float(0, 1);
 			if (roll < 0.5) preset = 'closeup';
 			else if (roll < 0.8) preset = 'over_shoulder';
 			else preset = 'crowd';
-			hold = 30 + this.rng.int(0, 30);
-			transitionSpeed = 6.0;
+			hold = 60 + this.rng.int(0, 45);
+			transitionSpeed = 5.0;
 		} else {
-			// Peak tension: rapid cuts, reaction shots
+			// Peak tension: faster cuts but still cinematic
 			const roll = this.rng.float(0, 1);
 			if (roll < 0.4) preset = 'closeup';
 			else if (roll < 0.7) preset = 'crowd';
 			else preset = 'over_shoulder';
-			hold = 20 + this.rng.int(0, 10);
-			transitionSpeed = 10.0;
+			hold = 40 + this.rng.int(0, 30);
+			transitionSpeed = 8.0;
 		}
 
 		// Avoid cutting to the same preset
@@ -227,7 +260,7 @@ export class CameraDirector {
 
 			case 'crowd':
 			case 'entrance':
-				return [0, RING_HEIGHT + 2, 0];
+				return [0, RING_HEIGHT + 1, 0];
 
 			case 'closeup':
 			case 'over_shoulder': {
@@ -244,12 +277,12 @@ export class CameraDirector {
 	private getAgentTarget(agentId: string, state: MatchState): [number, number, number] {
 		const agent = state.agents.find((a) => a.id === agentId);
 		if (!agent) return this.getMidpoint(state);
-		return [agent.positionX, RING_HEIGHT + agent.height * 0.7, 0];
+		return [agent.positionX, RING_HEIGHT + 0.35, 0];
 	}
 
 	private getMidpoint(state: MatchState): [number, number, number] {
 		const [a, b] = state.agents;
-		return [(a.positionX + b.positionX) / 2, RING_HEIGHT + 0.5, 0];
+		return [(a.positionX + b.positionX) / 2, RING_HEIGHT + 0.35, 0];
 	}
 
 	// ─── Internal ────────────────────────────────────────────────────

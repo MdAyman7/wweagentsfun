@@ -85,7 +85,7 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		aggressionMod: 1.0,
 		defenseMod: 1.0,
 		specialMoveMod: 1.0,
-		mistakeChance: 0.04,
+		mistakeChance: 0.01,    // calm = very few mistakes
 		damageMod: 1.0,
 		reversalMod: 1.0,
 		critMod: 1.0,
@@ -95,7 +95,7 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		aggressionMod: 1.3,
 		defenseMod: 0.7,
 		specialMoveMod: 1.4,
-		mistakeChance: 0.06,
+		mistakeChance: 0.03,    // slightly careless when dominating
 		damageMod: 1.15,
 		reversalMod: 0.8,
 		critMod: 1.2,
@@ -105,7 +105,7 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		aggressionMod: 1.4,     // angry = more aggressive
 		defenseMod: 0.6,        // too angry to defend properly
 		specialMoveMod: 0.5,    // too erratic for technical moves
-		mistakeChance: 0.14,    // sloppy from anger
+		mistakeChance: 0.06,    // sloppy from anger
 		damageMod: 1.05,        // hits slightly harder (adrenaline)
 		reversalMod: 0.6,       // too emotional for clean reversals
 		critMod: 0.8,           // less precise
@@ -115,7 +115,7 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		aggressionMod: 0.6,
 		defenseMod: 1.6,
 		specialMoveMod: 0.3,
-		mistakeChance: 0.15,
+		mistakeChance: 0.08,    // fear causes errors
 		damageMod: 0.85,
 		reversalMod: 1.3,
 		critMod: 0.6,
@@ -125,7 +125,7 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		aggressionMod: 1.8,
 		defenseMod: 0.3,
 		specialMoveMod: 2.0,
-		mistakeChance: 0.20,
+		mistakeChance: 0.10,    // reckless = more mistakes
 		damageMod: 1.1,
 		reversalMod: 0.5,
 		critMod: 1.4,
@@ -135,7 +135,7 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		aggressionMod: 1.5,
 		defenseMod: 0.4,
 		specialMoveMod: 1.8,
-		mistakeChance: 0.18,
+		mistakeChance: 0.08,    // showing off leads to sloppiness
 		damageMod: 1.2,
 		reversalMod: 0.4,
 		critMod: 1.3,

@@ -1,8 +1,11 @@
 import * as THREE from 'three';
 import type { Vec3 } from '../utils/types';
 
-/** Effect type identifiers matching VFXRequest component. */
-export type EffectType = 'impact' | 'sweat' | 'dust' | 'flash' | 'sparks';
+/**
+ * Effect type identifiers — names match the director system's DirectorEffectType.
+ * Visual output is energy/sci-fi themed (cyan bursts, electric sparks, shield pops).
+ */
+export type EffectType = 'impact' | 'sweat' | 'dust' | 'flash' | 'sparks' | 'blood';
 
 interface ActiveEffect {
 	mesh: THREE.Points;
@@ -17,26 +20,35 @@ interface ActiveEffect {
 
 /** How many particles to spawn per effect type. */
 const PARTICLE_COUNTS: Record<EffectType, number> = {
-	impact: 30,
-	sweat: 8,
-	dust: 20,
+	impact: 60,
+	sweat: 10,
+	dust: 25,
 	flash: 1,
-	sparks: 16
+	sparks: 40,
+	blood: 30
 };
 
 /** Effect lifetimes in seconds. */
 const TTL: Record<EffectType, number> = {
-	impact: 0.4,
-	sweat: 0.5,
+	impact: 0.6,
+	sweat: 0.8,
 	dust: 0.8,
-	flash: 0.15,
-	sparks: 0.35
+	flash: 0.18,
+	sparks: 0.5,
+	blood: 0.7
 };
 
 /**
- * Manages short-lived particle effects for hits, sweat, dust clouds,
- * flashes, and sparks. Each spawn creates a THREE.Points object that
- * is automatically updated and removed after its TTL expires.
+ * Manages energy-based particle effects for the battle bot arena.
+ *
+ * Visual mapping:
+ *   impact → Cyan energy burst (no gravity, spherical drift)
+ *   sparks → Yellow-white electric sparks (half gravity, fast)
+ *   flash  → Blue-white shield pop (single bright sprite)
+ *   dust   → Blue energy aura (no gravity, gentle drift)
+ *   sweat  → Green heal sparkles (gentle upward drift)
+ *
+ * All effects use AdditiveBlending for an energy/sci-fi feel.
  */
 export class EffectsRenderer {
 	private activeEffects: ActiveEffect[] = [];
@@ -63,50 +75,58 @@ export class EffectsRenderer {
 			positions[i3 + 1] = position[1];
 			positions[i3 + 2] = position[2];
 
-			// Per-type velocity spread
 			switch (type) {
 				case 'impact': {
-					// Burst outward in a sphere
+					// Cyan energy burst — spherical, no gravity, gentle drift
 					const theta = Math.random() * Math.PI * 2;
 					const phi = Math.acos(2 * Math.random() - 1);
-					const speed = (1.5 + Math.random() * 3) * intensity;
+					const speed = (1.5 + Math.random() * 3.5) * intensity;
 					velocities[i3] = Math.sin(phi) * Math.cos(theta) * speed;
-					velocities[i3 + 1] = Math.abs(Math.sin(phi) * Math.sin(theta)) * speed;
+					velocities[i3 + 1] = Math.sin(phi) * Math.sin(theta) * speed;
 					velocities[i3 + 2] = Math.cos(phi) * speed;
 					break;
 				}
 				case 'sweat': {
-					// A few droplets arcing outward
+					// Green heal sparkles — gentle upward drift with wander
 					const angle = Math.random() * Math.PI * 2;
-					const sp = (1 + Math.random() * 2) * intensity;
-					velocities[i3] = Math.cos(angle) * sp;
-					velocities[i3 + 1] = 2 + Math.random() * 2;
-					velocities[i3 + 2] = Math.sin(angle) * sp;
+					const wander = 0.3 * intensity;
+					velocities[i3] = Math.cos(angle) * wander;
+					velocities[i3 + 1] = 0.5 + Math.random() * 1.0;
+					velocities[i3 + 2] = Math.sin(angle) * wander;
 					break;
 				}
 				case 'dust': {
-					// Low expanding cloud near feet
+					// Blue energy aura — gentle radial drift, no gravity
 					const a = Math.random() * Math.PI * 2;
-					const r = (0.5 + Math.random()) * intensity;
+					const r = (0.5 + Math.random() * 1.0) * intensity;
 					velocities[i3] = Math.cos(a) * r;
-					velocities[i3 + 1] = 0.3 + Math.random() * 0.5;
+					velocities[i3 + 1] = (Math.random() - 0.5) * 0.6;
 					velocities[i3 + 2] = Math.sin(a) * r;
 					break;
 				}
 				case 'flash': {
-					// Single bright sprite, no real velocity
+					// Single bright shield pop — no velocity
 					velocities[i3] = 0;
 					velocities[i3 + 1] = 0;
 					velocities[i3 + 2] = 0;
 					break;
 				}
 				case 'sparks': {
-					// Fast directional sparks
+					// Yellow-white electric sparks — fast, upward-biased
 					const sa = Math.random() * Math.PI * 2;
 					const sSpeed = (3 + Math.random() * 5) * intensity;
 					velocities[i3] = Math.cos(sa) * sSpeed;
-					velocities[i3 + 1] = 1 + Math.random() * 3;
+					velocities[i3 + 1] = 1.5 + Math.random() * 3;
 					velocities[i3 + 2] = Math.sin(sa) * sSpeed;
+					break;
+				}
+				case 'blood': {
+					// Red blood/oil splatter — gravity-affected, outward burst
+					const ba = Math.random() * Math.PI * 2;
+					const bSpeed = (2 + Math.random() * 4) * intensity;
+					velocities[i3] = Math.cos(ba) * bSpeed;
+					velocities[i3 + 1] = 1.0 + Math.random() * 2.5;
+					velocities[i3 + 2] = Math.sin(ba) * bSpeed;
 					break;
 				}
 			}
@@ -116,19 +136,21 @@ export class EffectsRenderer {
 		geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
 		const colorMap: Record<EffectType, THREE.Color> = {
-			impact: new THREE.Color(0xffffff),
-			sweat: new THREE.Color(0x88ccff),
-			dust: new THREE.Color(0xaa9977),
-			flash: new THREE.Color(0xffffcc),
-			sparks: new THREE.Color(0xffaa33)
+			impact: new THREE.Color(0x66ccff),
+			sweat: new THREE.Color(0x44ff88),
+			dust: new THREE.Color(0x88aaff),
+			flash: new THREE.Color(0x88ccff),
+			sparks: new THREE.Color(0xffdd55),
+			blood: new THREE.Color(0xff2222)
 		};
 
 		const sizeMap: Record<EffectType, number> = {
-			impact: 0.06 * intensity,
-			sweat: 0.04 * intensity,
-			dust: 0.12 * intensity,
-			flash: 1.5 * intensity,
-			sparks: 0.05 * intensity
+			impact: 0.12 * intensity,
+			sweat: 0.08 * intensity,
+			dust: 0.10 * intensity,
+			flash: 2.5 * intensity,
+			sparks: 0.09 * intensity,
+			blood: 0.10 * intensity
 		};
 
 		const material = new THREE.PointsMaterial({
@@ -137,7 +159,7 @@ export class EffectsRenderer {
 			transparent: true,
 			opacity: 1.0,
 			depthWrite: false,
-			blending: type === 'flash' ? THREE.AdditiveBlending : THREE.NormalBlending,
+			blending: THREE.AdditiveBlending,
 			sizeAttenuation: true
 		});
 
@@ -159,7 +181,7 @@ export class EffectsRenderer {
 	 * @param dt Delta time in seconds.
 	 */
 	update(dt: number): void {
-		const gravity = -9.81;
+		const halfGravity = -4.9; // half gravity for floatier feel
 		let i = this.activeEffects.length;
 
 		while (i--) {
@@ -167,7 +189,7 @@ export class EffectsRenderer {
 			fx.ttl -= dt;
 
 			if (fx.ttl <= 0) {
-				// Expired -- remove from scene and free GPU resources
+				// Expired — remove and free GPU resources
 				this.scene.remove(fx.mesh);
 				fx.mesh.geometry.dispose();
 				(fx.mesh.material as THREE.PointsMaterial).dispose();
@@ -181,9 +203,9 @@ export class EffectsRenderer {
 			const vel = fx.velocities;
 
 			for (let p = 0; p < pos.length; p += 3) {
-				// Apply gravity to Y velocity (except flash / dust)
-				if (fx.type !== 'flash' && fx.type !== 'dust') {
-					vel[p + 1] += gravity * dt;
+				// Apply half gravity to sparks and blood; others float freely
+				if (fx.type === 'sparks' || fx.type === 'blood') {
+					vel[p + 1] += halfGravity * dt;
 				}
 				pos[p] += vel[p] * dt;
 				pos[p + 1] += vel[p + 1] * dt;

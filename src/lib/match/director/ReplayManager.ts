@@ -11,9 +11,14 @@ const REPLAY_TRAIL_FRAMES = 30;
 /** Default playback speed for replays (30% = slow-motion). */
 const DEFAULT_REPLAY_SPEED = 0.3;
 
+/** Extended lead frames for finisher replays (2.5s at 60fps to capture setup). */
+const FINISHER_REPLAY_LEAD_FRAMES = 150;
+
 /** Priority lookup for replay-worthy events. Higher = more replay-worthy. */
 const REPLAY_PRIORITIES: Partial<Record<DramaEvent['type'], number>> = {
+	finisher_impact: 6,
 	match_end: 5,
+	counter_finisher: 5,
 	knockdown: 4,
 	comeback_start: 3,
 	big_hit: 2,
@@ -107,9 +112,11 @@ export class ReplayManager {
 
 		if (!bestEvent || bestPriority === 0) return null;
 
-		// Compute replay window
+		// Compute replay window (extended for finisher replays to capture setup)
 		const currentTick = drama.tick;
-		const startTick = Math.max(0, currentTick - REPLAY_LEAD_FRAMES);
+		const isFinisher = bestEvent.type === 'finisher_impact' || bestEvent.type === 'counter_finisher';
+		const leadFrames = isFinisher ? FINISHER_REPLAY_LEAD_FRAMES : REPLAY_LEAD_FRAMES;
+		const startTick = Math.max(0, currentTick - leadFrames);
 		const endTick = currentTick + REPLAY_TRAIL_FRAMES;
 
 		// Select camera preset for the replay (different from what was live)
@@ -199,6 +206,8 @@ export class ReplayManager {
 
 	private selectReplayPreset(event: DramaEvent): DirectorCameraPreset {
 		switch (event.type) {
+			case 'finisher_impact': return 'closeup';
+			case 'counter_finisher': return 'over_shoulder';
 			case 'match_end': return 'wide';
 			case 'knockdown': return 'top_down';
 			case 'comeback_start': return 'crowd';

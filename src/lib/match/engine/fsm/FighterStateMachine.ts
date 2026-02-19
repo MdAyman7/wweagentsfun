@@ -128,12 +128,12 @@ export class FighterStateMachine {
 
 	/** Whether this fighter can currently accept an attack command. */
 	get canAttack(): boolean {
-		return this.currentState.id === 'IDLE' && this.ctx.attackCooldown <= 0;
+		return (this.currentState.id === 'IDLE' || this.currentState.id === 'MOVING') && this.ctx.attackCooldown <= 0;
 	}
 
 	/** Whether this fighter is in a state where AI decisions are accepted. */
 	get acceptsInput(): boolean {
-		return this.currentState.id === 'IDLE';
+		return this.currentState.id === 'IDLE' || this.currentState.id === 'MOVING';
 	}
 
 	/** Whether this fighter is in the combo window (can chain an attack). */

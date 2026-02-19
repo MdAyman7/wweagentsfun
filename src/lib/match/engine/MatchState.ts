@@ -1,4 +1,4 @@
-import type { Seed } from '../../utils/types';
+import type { Seed, MoveCategory, BodyRegion } from '../../utils/types';
 import type { PsychProfile, AgentPsychState, EmotionalState } from './PsychologyTypes';
 
 // ─── Core State Types ───────────────────────────────────────────────
@@ -41,6 +41,18 @@ export interface AgentState {
 	height: number;
 	/** Build for rendering */
 	build: 'light' | 'medium' | 'heavy';
+
+	// ─── Render-facing fields (populated during FSM_SYNC for animation) ──
+	/** Category of the active move (null when not attacking). */
+	moveCategory: MoveCategory | null;
+	/** Body region targeted by the active move (null when not attacking). */
+	targetRegion: BodyRegion | null;
+	/** Total frames for the current phase (for animation progress). */
+	phaseTotalFrames: number;
+	/** Current combo step (-1 if not in combo). */
+	comboStep: number;
+	/** Total steps in the active combo (-1 if not in combo). */
+	comboTotalSteps: number;
 }
 
 export type AgentPhase =

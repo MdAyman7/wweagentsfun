@@ -206,22 +206,22 @@ export function computeEffectiveModifiers(
 	);
 
 	// ── 9. Idle Tendency ──
-	// Low when aggressive/desperate/comeback, high when panicking/low stamina
-	let idleTendency = 0.1;
-	if (psych.emotion === 'panicking') idleTendency = 0.3;
-	if (psych.emotion === 'frustrated') idleTendency = 0.05; // frustrated = keeps going
-	if (psych.emotion === 'desperate') idleTendency = 0.02;
-	if (psych.emotion === 'clutch') idleTendency = 0.05;
-	if (agent.comebackActive) idleTendency = 0.01;
+	// Wrestlers rarely idle — they should be fighting! Only rest when exhausted.
+	let idleTendency = 0.03; // very low base — fighters stay active
+	if (psych.emotion === 'panicking') idleTendency = 0.12;
+	if (psych.emotion === 'frustrated') idleTendency = 0.02; // frustrated = keeps going
+	if (psych.emotion === 'desperate') idleTendency = 0.01;
+	if (psych.emotion === 'clutch') idleTendency = 0.02;
+	if (agent.comebackActive) idleTendency = 0.0;
 	// Adaptable wrestlers rest less when losing (they adjust strategy)
 	if (healthAdvantage < -0.15 && profile.adaptability > 0.5) {
 		idleTendency *= (1.0 - profile.adaptability * 0.4);
 	}
-	// Stamina depletion overrides everything except comeback
+	// Stamina depletion increases rest — but not too much
 	if (!agent.comebackActive && agent.stamina / agent.maxStamina < 0.2) {
-		idleTendency = Math.max(idleTendency, 0.35);
+		idleTendency = Math.max(idleTendency, 0.2);
 	}
-	idleTendency = clamp(idleTendency, 0.0, 0.6);
+	idleTendency = clamp(idleTendency, 0.0, 0.4);
 
 	// ── 10. Finisher Boost ──
 	// Probability boost for finisher moves, driven by momentum + emotion + confidence

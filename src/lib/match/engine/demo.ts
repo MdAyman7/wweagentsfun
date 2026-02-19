@@ -29,7 +29,7 @@ const PERSONALITY_MAP: Record<string, AgentPersonality> = {
 const wrestler1: WrestlerInput = {
 	id: 'iron_mike',
 	name: 'Iron Mike Sterling',
-	health: 110,
+	health: 330,
 	stamina: 90,
 	personality: PERSONALITY_MAP.powerhouse,
 	psychArchetype: 'powerhouse',
@@ -41,7 +41,7 @@ const wrestler1: WrestlerInput = {
 const wrestler2: WrestlerInput = {
 	id: 'phoenix_blade',
 	name: 'Phoenix Blade',
-	health: 80,
+	health: 240,
 	stamina: 110,
 	personality: PERSONALITY_MAP.highflyer,
 	psychArchetype: 'highflyer',

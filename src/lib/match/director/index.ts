@@ -11,6 +11,7 @@ import { CameraDirector } from './CameraDirector';
 import { ReplayManager } from './ReplayManager';
 import { AtmosphereController } from './AtmosphereController';
 import { SlowMotionController } from './SlowMotionController';
+import { FinisherSequencer } from './FinisherSequencer';
 import { SeededRandom } from '../../utils/random';
 
 /**
@@ -44,6 +45,7 @@ export class MatchDirector {
 	private readonly replay: ReplayManager;
 	private readonly atmosphere: AtmosphereController;
 	private readonly slowMotion: SlowMotionController;
+	private readonly finisher: FinisherSequencer;
 	private readonly config: DirectorConfig;
 
 	/** Most recent drama snapshot (exposed for debug overlay). */
@@ -59,6 +61,7 @@ export class MatchDirector {
 		);
 		this.atmosphere = new AtmosphereController();
 		this.slowMotion = new SlowMotionController();
+		this.finisher = new FinisherSequencer();
 	}
 
 	/**
@@ -75,25 +78,35 @@ export class MatchDirector {
 		const drama = scoreDrama(state, this.prevState);
 		this.lastDrama = drama;
 
-		// 3. Camera direction
-		const cameraCue = this.camera.update(drama, state);
-		if (cameraCue) cues.push(cameraCue);
+		// 3. Finisher sequencer (takes over camera/atmosphere when active)
+		const finisherCues = this.finisher.update(drama, state);
+		for (const fc of finisherCues) cues.push(fc);
 
-		// 4. Atmosphere + VFX
-		const { atmosphere, vfx } = this.atmosphere.update(drama, state);
-		if (atmosphere) cues.push(atmosphere);
-		for (const v of vfx) cues.push(v);
+		// 4. Camera direction (suppressed during finisher sequence)
+		if (!this.finisher.isActive) {
+			const cameraCue = this.camera.update(drama, state);
+			if (cameraCue) cues.push(cameraCue);
+		}
 
-		// 5. Slow motion for high-drama events
-		this.checkSlowMotion(drama, cues);
+		// 5. Atmosphere + VFX (suppressed during finisher — sequencer handles it)
+		if (!this.finisher.isActive) {
+			const { atmosphere, vfx } = this.atmosphere.update(drama, state);
+			if (atmosphere) cues.push(atmosphere);
+			for (const v of vfx) cues.push(v);
+		}
 
-		// 6. Replay triggers
+		// 6. Slow motion for high-drama events (suppressed during finisher)
+		if (!this.finisher.isActive) {
+			this.checkSlowMotion(drama, cues);
+		}
+
+		// 7. Replay triggers
 		if (this.config.replaysEnabled && !this.replay.isReplaying) {
 			const replayCue = this.replay.checkTrigger(drama);
 			if (replayCue) cues.push(replayCue);
 		}
 
-		// 7. Advance internal clocks
+		// 8. Advance internal clocks
 		this.slowMotion.tick();
 		this.prevState = state;
 
@@ -102,6 +115,7 @@ export class MatchDirector {
 
 	/**
 	 * Check if any drama events should trigger slow motion.
+	 * More generous triggers for cinematic, dramatic matches.
 	 */
 	private checkSlowMotion(drama: DramaSnapshot, cues: CinematicCue[]): void {
 		if (this.slowMotion.isActive) return;
@@ -111,42 +125,68 @@ export class MatchDirector {
 
 			switch (event.type) {
 				case 'knockdown':
+					// Deep slow-mo on knockdown — dramatic fall
 					sloCue = {
 						type: 'slow_motion',
-						factor: 0.25,
-						durationTicks: 60,
-						rampInPct: 0.1,
-						rampOutPct: 0.2
+						factor: 0.15,
+						durationTicks: 90,
+						rampInPct: 0.08,
+						rampOutPct: 0.25
 					};
 					break;
 
 				case 'comeback_start':
 					sloCue = {
 						type: 'slow_motion',
-						factor: 0.3,
-						durationTicks: 45,
+						factor: 0.25,
+						durationTicks: 60,
 						rampInPct: 0.1,
 						rampOutPct: 0.25
 					};
 					break;
 
 				case 'big_hit':
-					if (event.damage >= 18) {
+					// Lower threshold — more hits get slow-mo treatment
+					if (event.damage >= 10) {
+						const factor = event.damage >= 16 ? 0.2 : 0.35;
+						const duration = event.damage >= 16 ? 60 : 40;
 						sloCue = {
 							type: 'slow_motion',
-							factor: 0.4,
-							durationTicks: 30,
-							rampInPct: 0.15,
-							rampOutPct: 0.25
+							factor,
+							durationTicks: duration,
+							rampInPct: 0.1,
+							rampOutPct: 0.2
 						};
 					}
+					break;
+
+				case 'reversal':
+					// Slow-mo on reversals — dramatic counter
+					sloCue = {
+						type: 'slow_motion',
+						factor: 0.3,
+						durationTicks: 45,
+						rampInPct: 0.1,
+						rampOutPct: 0.2
+					};
+					break;
+
+				case 'near_finish':
+					// Near-death moments get slow-mo
+					sloCue = {
+						type: 'slow_motion',
+						factor: 0.2,
+						durationTicks: 50,
+						rampInPct: 0.08,
+						rampOutPct: 0.25
+					};
 					break;
 
 				case 'match_end':
 					sloCue = {
 						type: 'slow_motion',
-						factor: 0.2,
-						durationTicks: 90,
+						factor: 0.12,
+						durationTicks: 120,
 						rampInPct: 0.05,
 						rampOutPct: 0.3
 					};
@@ -194,6 +234,7 @@ export { CameraDirector } from './CameraDirector';
 export { ReplayManager } from './ReplayManager';
 export { AtmosphereController } from './AtmosphereController';
 export { SlowMotionController } from './SlowMotionController';
+export { FinisherSequencer } from './FinisherSequencer';
 export type {
 	CinematicCue,
 	CameraCue,

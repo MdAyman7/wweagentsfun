@@ -1,8 +1,13 @@
 <script lang="ts">
 	import type { WrestlerUIState } from '$lib/state/matchStore';
 
-	let { wrestlers = [], matchTime = 0 }: { wrestlers: WrestlerUIState[]; matchTime: number } =
-		$props();
+	let { wrestlers = [], matchTime = 0, matchNumber = 1, wrestler1Name = '', wrestler2Name = '' }: {
+		wrestlers: WrestlerUIState[];
+		matchTime: number;
+		matchNumber?: number;
+		wrestler1Name?: string;
+		wrestler2Name?: string;
+	} = $props();
 
 	function formatTime(seconds: number): string {
 		const m = Math.floor(seconds / 60);
@@ -62,9 +67,16 @@
 			</div>
 		</div>
 
-		<!-- Timer -->
-		<div class="timer-pill glass">
-			<span class="timer-value font-mono">{formatTime(matchTime)}</span>
+		<!-- Match Info Board -->
+		<div class="match-info glass">
+			<div class="match-title font-display">WWE AGENTS</div>
+			<div class="match-number font-mono">MATCH #{matchNumber}</div>
+			<div class="match-versus font-display">
+				<span class="vs-name">{wrestler1Name || wrestlers[0].name}</span>
+				<span class="vs-divider">VS</span>
+				<span class="vs-name">{wrestler2Name || wrestlers[1].name}</span>
+			</div>
+			<div class="timer-value font-mono">{formatTime(matchTime)}</div>
 		</div>
 
 		<!-- Player 2 Panel -->
@@ -191,12 +203,57 @@
 		margin-left: auto;
 	}
 
-	/* ─── Timer ──────────────────────────────────── */
-	.timer-pill {
-		padding: 0.35rem 1rem;
-		border-radius: var(--radius-pill);
+	/* ─── Match Info Board ───────────────────────── */
+	.match-info {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		padding: 0.5rem 1.2rem;
+		border-radius: var(--radius-md);
 		flex-shrink: 0;
-		margin-top: 0.15rem;
+		min-width: 180px;
+		border: 1px solid rgba(255, 50, 80, 0.2);
+		background: rgba(10, 5, 15, 0.7);
+		backdrop-filter: blur(10px);
+	}
+
+	.match-title {
+		font-size: 0.75rem;
+		letter-spacing: 0.2em;
+		color: #ff4466;
+		text-shadow: 0 0 10px rgba(255, 68, 102, 0.5);
+		font-weight: 700;
+	}
+
+	.match-number {
+		font-size: 0.65rem;
+		color: rgba(255, 255, 255, 0.5);
+		letter-spacing: 0.1em;
+		margin-bottom: 0.15rem;
+	}
+
+	.match-versus {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.7rem;
+		margin-bottom: 0.2rem;
+	}
+
+	.vs-name {
+		color: rgba(255, 255, 255, 0.8);
+		letter-spacing: 0.03em;
+		max-width: 80px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.vs-divider {
+		color: #ff4466;
+		font-weight: 700;
+		font-size: 0.6rem;
+		text-shadow: 0 0 8px rgba(255, 68, 102, 0.6);
 	}
 
 	.timer-value {

@@ -51,8 +51,9 @@ const KNOCKBACK_DECAY = 8.0;
 /** Knockback velocity below this is zeroed (anti-jitter). */
 const KNOCKBACK_EPSILON = 0.01;
 
-/** Default preferred attack range (approach distance). */
-const DEFAULT_ATTACK_RANGE = 1.5;
+/** Default preferred attack range (approach distance).
+ * Set tight enough for grapple range (0.8) to connect with some margin. */
+const DEFAULT_ATTACK_RANGE = 1.2;
 
 /** Ring height (Y position on mat). */
 const RING_Y = 1.2;

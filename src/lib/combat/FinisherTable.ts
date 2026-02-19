@@ -46,9 +46,9 @@ function makeSpecial(
 		id,
 		name,
 		category,
-		windupFrames: specialType === 'finisher' ? 14 : 10,
-		activeFrames: specialType === 'finisher' ? 10 : 8,
-		recoveryFrames: specialType === 'finisher' ? 14 : 10,
+		windupFrames: specialType === 'finisher' ? 42 : 30,
+		activeFrames: specialType === 'finisher' ? 30 : 24,
+		recoveryFrames: specialType === 'finisher' ? 42 : 30,
 		baseDamage,
 		staminaCost: specialType === 'finisher' ? 18 : 12,
 		region,
@@ -74,7 +74,7 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 		signatures: [
 			makeSpecial('powerhouse_a', 'signature', 'titan_press', 'Titan Press', 'signature', 20, 'body',
 				'Lifts opponent overhead', {
-					windupFrames: 14,
+					windupFrames: 42,
 					staminaCost: 14,
 					hitbox: { range: 1.5, angle: 360 }
 				})
@@ -82,8 +82,8 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 		finishers: [
 			makeSpecial('powerhouse_a', 'finisher', 'titan_bomb', 'Titan Bomb', 'finisher', 30, 'body',
 				'Lifts opponent for devastating powerbomb', {
-					windupFrames: 16,
-					activeFrames: 12,
+					windupFrames: 48,
+					activeFrames: 36,
 					staminaCost: 20,
 					hitbox: { range: 1.5, angle: 360 }
 				})
@@ -96,9 +96,9 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 			makeSpecial('technician_a', 'signature', 'architect_lock', 'Architect Lock', 'signature', 4, 'legs',
 				'Locks in a complex leg submission', {
 					category: 'submission',
-					windupFrames: 10,
-					activeFrames: 60,
-					recoveryFrames: 8,
+					windupFrames: 30,
+					activeFrames: 120,
+					recoveryFrames: 24,
 					staminaCost: 10,
 					hitbox: { range: 1.0, angle: 360 }
 				})
@@ -106,7 +106,7 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 		finishers: [
 			makeSpecial('technician_a', 'finisher', 'blueprint_driver', 'Blueprint Driver', 'finisher', 28, 'head',
 				'Hooks the arm and drives opponent into the mat', {
-					windupFrames: 12,
+					windupFrames: 36,
 					staminaCost: 18
 				})
 		]
@@ -118,7 +118,7 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 			makeSpecial('highflyer_a', 'signature', 'phoenix_kick', 'Phoenix Kick', 'signature', 18, 'head',
 				'Springboard spinning heel kick', {
 					category: 'aerial' as MoveCategory,
-					windupFrames: 12,
+					windupFrames: 36,
 					staminaCost: 14,
 					hitbox: { range: 3.5, angle: 45 }
 				})
@@ -127,12 +127,12 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 			makeSpecial('highflyer_a', 'finisher', 'phoenix_splash', 'Phoenix Splash', 'finisher', 32, 'body',
 				'Corkscrew shooting star press from the top rope', {
 					category: 'aerial' as MoveCategory,
-					windupFrames: 18,
-					activeFrames: 5,
-					recoveryFrames: 20,
+					windupFrames: 54,
+					activeFrames: 15,
+					recoveryFrames: 60,
 					staminaCost: 22,
 					hitbox: { range: 4.0, angle: 90 },
-					reversalWindow: 2
+					reversalWindow: 5
 				})
 		]
 	},
@@ -142,7 +142,7 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 		signatures: [
 			makeSpecial('brawler_a', 'signature', 'bone_lariat', 'Bone Lariat', 'signature', 22, 'head',
 				'Running lariat with devastating impact', {
-					windupFrames: 8,
+					windupFrames: 24,
 					staminaCost: 10,
 					hitbox: { range: 2.5, angle: 90 }
 				})
@@ -150,7 +150,7 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 		finishers: [
 			makeSpecial('brawler_a', 'finisher', 'skull_crusher', 'Skull Crusher', 'finisher', 28, 'head',
 				'Short-arm clothesline into a sit-out piledriver', {
-					windupFrames: 12,
+					windupFrames: 36,
 					staminaCost: 16
 				})
 		]
@@ -161,16 +161,16 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 		signatures: [
 			makeSpecial('psychologist_a', 'signature', 'mind_game', 'Mind Game', 'signature', 16, 'head',
 				'Calculated strike combination targeting a weakened area', {
-					windupFrames: 8,
-					activeFrames: 10,
+					windupFrames: 24,
+					activeFrames: 30,
 					staminaCost: 10
 				})
 		],
 		finishers: [
 			makeSpecial('psychologist_a', 'finisher', 'checkmate', 'Checkmate', 'finisher', 26, 'head',
 				'Methodical setup into a devastating finishing blow', {
-					windupFrames: 14,
-					activeFrames: 8,
+					windupFrames: 42,
+					activeFrames: 24,
 					staminaCost: 16
 				})
 		]
@@ -181,16 +181,16 @@ const DEFAULT_MOVESETS: MovesetEntry[] = [
 		signatures: [
 			makeSpecial('allrounder_a', 'signature', 'prodigy_cutter', 'Prodigy Cutter', 'signature', 20, 'head',
 				'Leaping cutter out of nowhere', {
-					windupFrames: 6,
+					windupFrames: 18,
 					staminaCost: 12,
 					hitbox: { range: 2.5, angle: 60 },
-					reversalWindow: 2
+					reversalWindow: 5
 				})
 		],
 		finishers: [
 			makeSpecial('allrounder_a', 'finisher', 'prodigy_slam', 'Prodigy Slam', 'finisher', 28, 'body',
 				'Spinning uranage slam', {
-					windupFrames: 10,
+					windupFrames: 30,
 					staminaCost: 16,
 					hitbox: { range: 1.5, angle: 360 }
 				})

@@ -86,10 +86,10 @@ export class CombatResolver {
 		// Stunned, knocked down, getting_up, and taunting defenders are too vulnerable.
 		const canDodge = defender.phase === 'idle' || defender.phase === 'moving';
 		if (canDodge) {
-			// Defenders in idle have a passive dodge chance based on stamina
+			// Passive dodge chance — creates miss variety and extends matches
 			// Psychology: defense modifier affects dodge chance
-			const defenseBonus = defenderMods ? defenderMods.defense * 0.04 : 0;
-			const dodgeChance = 0.08 + (defender.stamina / defender.maxStamina) * 0.07 + defenseBonus;
+			const defenseBonus = defenderMods ? defenderMods.defense * 0.06 : 0;
+			const dodgeChance = 0.12 + (defender.stamina / defender.maxStamina) * 0.10 + defenseBonus;
 			if (this.rng.chance(dodgeChance)) {
 				return {
 					hit: false,
@@ -105,8 +105,8 @@ export class CombatResolver {
 		}
 
 		// ── Reversal check ──
-		// Only idle defenders can attempt reversals (requires full attention/readiness)
-		if (move.canBeReversed && defender.phase === 'idle') {
+		// Idle or moving defenders can attempt reversals (requires readiness)
+		if (move.canBeReversed && (defender.phase === 'idle' || defender.phase === 'moving')) {
 			const baseReversalChance = 0.12;
 			const skillBonus = defender.personality.reversalSkill * 0.18;
 			const windowBonus = (move.reversalWindow / 10) * 0.08;
@@ -129,7 +129,7 @@ export class CombatResolver {
 					reversalDamage,
 					critical: false,
 					momentumGain: 0,
-					stunFrames: 18,
+					stunFrames: 48,
 					description: `${defender.name} reversed the ${move.name}!`
 				};
 			}
@@ -162,6 +162,10 @@ export class CombatResolver {
 		// Psychology damage modifier (0.7 – 1.6)
 		const psychDamageMod = attackerMods ? attackerMods.damage : 1.0;
 
+		// Match pacing scaler — reduces raw damage to extend match duration.
+		// Tuned so matches run 25-50 seconds with 240-330 HP fighters.
+		const pacingScale = 0.75;
+
 		// Final damage
 		const rawDamage = move.baseDamage
 			* staminaModifier
@@ -169,7 +173,8 @@ export class CombatResolver {
 			* variance
 			* criticalMultiplier
 			* comebackModifier
-			* psychDamageMod;
+			* psychDamageMod
+			* pacingScale;
 
 		const damage = Math.max(1, Math.round(rawDamage));
 
@@ -182,9 +187,9 @@ export class CombatResolver {
 		}
 
 		// Stun frames based on damage (bigger hits = longer stun)
-		// Defender's speed modifier reduces stun (faster recovery from daze)
-		let stunFrames = Math.round(6 + damage * 0.8);
-		if (critical) stunFrames += 8;
+		// Scaled 3× for cinematic pacing — fighters reel and stagger longer
+		let stunFrames = Math.round(18 + damage * 2.4);
+		if (critical) stunFrames += 24;
 		// Fast defenders recover from stun slightly quicker
 		if (defenderMods && defenderMods.speed > 1.0) {
 			stunFrames = Math.round(stunFrames / (0.8 + defenderMods.speed * 0.2));
@@ -193,7 +198,7 @@ export class CombatResolver {
 		if (defenderMods && defenderMods.speed < 0.95) {
 			stunFrames = Math.round(stunFrames * (1.1 - defenderMods.speed * 0.1));
 		}
-		stunFrames = clamp(stunFrames, 6, 60);
+		stunFrames = clamp(stunFrames, 18, 150);
 
 		// Description
 		const emotionTag = attackerMods ? ` [${attackerMods.emotion.toUpperCase()}]` : '';

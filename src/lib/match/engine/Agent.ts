@@ -95,43 +95,57 @@ export class Agent {
 		const healthPct = self.health / self.maxHealth;
 		const staminaPct = self.stamina / self.maxStamina;
 
-		// ── 1. Psychology: mistake check ──
-		// Before any decision, check if the agent makes a mistake (whiff)
-		if (mods && mods.mistakeChance > 0 && this.rng.chance(mods.mistakeChance)) {
-			const randomMove = this.availableMoves[this.rng.int(0, this.availableMoves.length - 1)];
-			if (randomMove && randomMove.staminaCost <= self.stamina) {
-				return { type: 'mistake', moveId: randomMove.id };
-			}
-		}
-
-		// ── 2. Range check: if too far from ANY available move, approach ──
+		// ── 1. Range check FIRST: if too far, approach (ALWAYS) ──
+		// This MUST come before mistake check — fighters must close distance
+		// or they'll stand still making whiffed attacks at range.
 		const closestMoveRange = this.getClosestMoveRange(self);
 		if (ctx.distance > closestMoveRange + 0.3) {
 			// Too far — move toward opponent. No point choosing attack.
 			return { type: 'move' };
 		}
 
+		// ── 2. Psychology: mistake check (only when in range) ──
+		// Mistakes only make sense when close enough to actually attack.
+		// Reduced effective chance to prevent mistake-spam from locking fighters.
+		if (mods && mods.mistakeChance > 0 && this.rng.chance(mods.mistakeChance * 0.5)) {
+			const randomMove = this.availableMoves[this.rng.int(0, this.availableMoves.length - 1)];
+			if (randomMove && randomMove.staminaCost <= self.stamina
+				&& ctx.distance <= randomMove.hitbox.range + 0.2) {
+				return { type: 'mistake', moveId: randomMove.id };
+			}
+		}
+
 		// ── 3. Should we block? ──
+		// Only block when close enough for the opponent to actually hit us
 		const opponentAttacking = opponent.phase === 'windup' || opponent.phase === 'active';
 		const defenseWeight = mods ? mods.defense : 1.0;
-		let blockChance = 0.1 * (1 - p.aggression) * defenseWeight;
-		if (opponentAttacking) blockChance += 0.25 * defenseWeight;
-		if (healthPct < 0.3) blockChance += 0.15 * defenseWeight;
-		if (staminaPct < 0.15) blockChance += 0.2;
+		let blockChance = 0;
+
+		// Only consider blocking when opponent is close and threatening
+		if (opponentAttacking && ctx.distance < 3.0) {
+			blockChance = 0.20 * defenseWeight;
+			if (healthPct < 0.3) blockChance += 0.10 * defenseWeight;
+		} else if (ctx.distance < 2.0) {
+			// Small passive block chance when very close
+			blockChance = 0.03 * (1 - p.aggression) * defenseWeight;
+			if (healthPct < 0.3) blockChance += 0.05 * defenseWeight;
+		}
+		if (staminaPct < 0.15) blockChance += 0.05;
 
 		// Comeback agents don't block — full aggression
-		if (self.comebackActive) blockChance = 0.02;
+		if (self.comebackActive) blockChance = 0.01;
 
 		if (this.rng.chance(blockChance)) {
 			return { type: 'block' };
 		}
 
 		// ── 4. Should we idle (rest)? ──
-		const idleTendencyBase = mods ? mods.idleTendency : 0;
+		// Idle = brief pause. Only do this occasionally and mainly when tired.
+		const idleTendencyBase = mods ? mods.idleTendency * 0.5 : 0;
 		let idleChance = idleTendencyBase;
 		if (!mods) {
-			if (staminaPct < 0.2 && !self.comebackActive) idleChance = 0.4;
-			else if (staminaPct < 0.35 && !self.comebackActive) idleChance = 0.15;
+			if (staminaPct < 0.2 && !self.comebackActive) idleChance = 0.25;
+			else if (staminaPct < 0.35 && !self.comebackActive) idleChance = 0.08;
 		}
 
 		if (this.rng.chance(idleChance)) {
@@ -156,20 +170,28 @@ export class Agent {
 	}
 
 	/**
-	 * Get the maximum hitbox range of the cheapest affordable move.
-	 * Used to determine the minimum "close enough" distance.
+	 * Get the practical engagement range for this fighter.
+	 * Uses the median range of standard moves (strikes + grapples) rather than
+	 * the maximum of all moves, so aerial moves at 3-4.5 range don't prevent
+	 * fighters from approaching. This ensures fighters close distance to actual
+	 * fighting range before choosing attacks.
 	 */
 	private getClosestMoveRange(self: AgentState): number {
-		let maxRange = 0;
+		const ranges: number[] = [];
 		for (const move of this.availableMoves) {
 			if (move.staminaCost <= self.stamina) {
-				if (move.hitbox.range > maxRange) {
-					maxRange = move.hitbox.range;
+				// Only count standard combat moves for engagement range
+				// Aerial/finisher/signature are special-case, not engagement range
+				if (move.category === 'strike' || move.category === 'grapple' || move.category === 'submission') {
+					ranges.push(move.hitbox.range);
 				}
 			}
 		}
-		// Fallback: use default attack range
-		return maxRange > 0 ? maxRange : 1.5;
+		if (ranges.length === 0) return 1.5;
+		// Use the 75th percentile range — close enough for most moves to land
+		ranges.sort((a, b) => a - b);
+		const idx = Math.floor(ranges.length * 0.75);
+		return ranges[Math.min(idx, ranges.length - 1)];
 	}
 
 	/**

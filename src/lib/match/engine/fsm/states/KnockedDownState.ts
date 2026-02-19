@@ -17,11 +17,11 @@ import type { FighterStateId, FighterContext, FSMEvent } from '../FighterStateId
  * while already on the mat.
  */
 
-/** Default knockdown duration in frames (2 seconds at 60fps). */
-const DEFAULT_KNOCKDOWN_FRAMES = 120;
+/** Default knockdown duration in frames (4 seconds at 60fps — dramatic downed time). */
+const DEFAULT_KNOCKDOWN_FRAMES = 240;
 
-/** Frames for the GETTING_UP phase after knockdown. */
-const GETTING_UP_FRAMES = 24;
+/** Frames for the GETTING_UP phase after knockdown (1 second rising struggle). */
+const GETTING_UP_FRAMES = 60;
 
 export class KnockedDownState extends FighterState {
 	readonly id: FighterStateId = 'KNOCKED_DOWN';

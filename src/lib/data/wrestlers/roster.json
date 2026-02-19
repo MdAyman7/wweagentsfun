@@ -4,10 +4,10 @@
 		"name": "Iron Mike Sterling",
 		"nickname": "The Steel Curtain",
 		"alignment": "face",
-		"stats": { "health": 110, "stamina": 90, "strength": 85, "speed": 60, "technique": 70, "charisma": 75 },
+		"stats": { "health": 330, "stamina": 90, "strength": 85, "speed": 60, "technique": 70, "charisma": 75 },
 		"movesetId": "powerhouse_set",
 		"personalityId": "powerhouse",
-		"appearance": { "height": 1.95, "weight": 120, "build": "super_heavy", "primaryColor": "#1a1a2e", "secondaryColor": "#e94560" },
+		"appearance": { "height": 1.95, "weight": 120, "build": "super_heavy", "primaryColor": "#3a3a6e", "secondaryColor": "#e94560" },
 		"entrance": { "musicId": "iron_theme", "style": "dramatic" }
 	},
 	{
@@ -15,7 +15,7 @@
 		"name": "Phoenix Blade",
 		"nickname": "The Aerial Ace",
 		"alignment": "face",
-		"stats": { "health": 80, "stamina": 110, "strength": 55, "speed": 95, "technique": 80, "charisma": 85 },
+		"stats": { "health": 240, "stamina": 110, "strength": 55, "speed": 95, "technique": 80, "charisma": 85 },
 		"movesetId": "highflyer_set",
 		"personalityId": "highflyer",
 		"appearance": { "height": 1.75, "weight": 82, "build": "light", "primaryColor": "#ff6b35", "secondaryColor": "#ffd700" },
@@ -26,10 +26,10 @@
 		"name": "Dr. Technique",
 		"nickname": "The Submission Machine",
 		"alignment": "heel",
-		"stats": { "health": 90, "stamina": 100, "strength": 65, "speed": 70, "technique": 95, "charisma": 60 },
+		"stats": { "health": 270, "stamina": 100, "strength": 65, "speed": 70, "technique": 95, "charisma": 60 },
 		"movesetId": "technician_set",
 		"personalityId": "technician",
-		"appearance": { "height": 1.83, "weight": 95, "build": "medium", "primaryColor": "#0d1b2a", "secondaryColor": "#415a77" },
+		"appearance": { "height": 1.83, "weight": 95, "build": "medium", "primaryColor": "#2d4b6a", "secondaryColor": "#6899bb" },
 		"entrance": { "musicId": "technique_theme", "style": "walk" }
 	},
 	{
@@ -37,10 +37,10 @@
 		"name": "King Chaos",
 		"nickname": "The Unhinged",
 		"alignment": "heel",
-		"stats": { "health": 100, "stamina": 85, "strength": 80, "speed": 75, "technique": 50, "charisma": 90 },
+		"stats": { "health": 300, "stamina": 85, "strength": 80, "speed": 75, "technique": 50, "charisma": 90 },
 		"movesetId": "brawler_set",
 		"personalityId": "brawler",
-		"appearance": { "height": 1.88, "weight": 105, "build": "heavy", "primaryColor": "#2d0a31", "secondaryColor": "#8b0000" },
+		"appearance": { "height": 1.88, "weight": 105, "build": "heavy", "primaryColor": "#6d2a71", "secondaryColor": "#cc3333" },
 		"entrance": { "musicId": "chaos_theme", "style": "pyro" }
 	},
 	{
@@ -48,7 +48,7 @@
 		"name": "Silver Serpent",
 		"nickname": "The Mind Game Master",
 		"alignment": "tweener",
-		"stats": { "health": 85, "stamina": 95, "strength": 60, "speed": 80, "technique": 75, "charisma": 95 },
+		"stats": { "health": 255, "stamina": 95, "strength": 60, "speed": 80, "technique": 75, "charisma": 95 },
 		"movesetId": "psychologist_set",
 		"personalityId": "psychologist",
 		"appearance": { "height": 1.80, "weight": 90, "build": "medium", "primaryColor": "#c0c0c0", "secondaryColor": "#228b22" },
@@ -59,10 +59,21 @@
 		"name": "Thunder Rosa Martinez",
 		"nickname": "La Tormenta",
 		"alignment": "face",
-		"stats": { "health": 85, "stamina": 105, "strength": 65, "speed": 85, "technique": 85, "charisma": 80 },
+		"stats": { "health": 255, "stamina": 105, "strength": 65, "speed": 85, "technique": 85, "charisma": 80 },
 		"movesetId": "lucha_set",
 		"personalityId": "balanced",
 		"appearance": { "height": 1.68, "weight": 72, "build": "light", "primaryColor": "#ff1493", "secondaryColor": "#00ced1" },
 		"entrance": { "musicId": "thunder_theme", "style": "run" }
+	},
+	{
+		"id": "brock_lesnar",
+		"name": "Brock Lesnar",
+		"nickname": "The Beast Incarnate",
+		"alignment": "heel",
+		"stats": { "health": 350, "stamina": 80, "strength": 95, "speed": 55, "technique": 65, "charisma": 85 },
+		"movesetId": "powerhouse_set",
+		"personalityId": "powerhouse",
+		"appearance": { "height": 1.91, "weight": 130, "build": "super_heavy", "primaryColor": "#bb3333", "secondaryColor": "#ffaa33" },
+		"entrance": { "musicId": "iron_theme", "style": "pyro" }
 	}
 ]

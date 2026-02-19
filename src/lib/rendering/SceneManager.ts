@@ -22,37 +22,37 @@ export class SceneManager {
 		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		this.renderer.setSize(canvas.clientWidth, canvas.clientHeight);
 		this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-		this.renderer.toneMappingExposure = 1.2;
+		this.renderer.toneMappingExposure = 1.8;
 		this.renderer.shadowMap.enabled = true;
 		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 		this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 		// --- Scene ---
 		this.scene = new THREE.Scene();
-		this.scene.background = new THREE.Color(0x111118);
-		this.scene.fog = new THREE.FogExp2(0x111118, 0.015);
+		this.scene.background = new THREE.Color(0x0a0a14);
+		this.scene.fog = new THREE.Fog(0x080810, 15, 50);
 
-		// --- Ambient fill ---
-		this.ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+		// --- Ambient fill (bright, clean arena) ---
+		this.ambientLight = new THREE.AmbientLight(0xffffff, 0.15);
 		this.scene.add(this.ambientLight);
 
-		// --- Main directional (arena spotlight feel) ---
-		this.directionalLight = new THREE.DirectionalLight(0xfff8e7, 1.8);
-		this.directionalLight.position.set(5, 15, 5);
+		// --- Main directional (warm, bright) ---
+		this.directionalLight = new THREE.DirectionalLight(0xccddff, 0.8);
+		this.directionalLight.position.set(3, 14, 3);
 		this.directionalLight.castShadow = true;
 		this.directionalLight.shadow.mapSize.set(2048, 2048);
 		this.directionalLight.shadow.camera.near = 0.5;
-		this.directionalLight.shadow.camera.far = 50;
-		this.directionalLight.shadow.camera.left = -15;
-		this.directionalLight.shadow.camera.right = 15;
-		this.directionalLight.shadow.camera.top = 15;
-		this.directionalLight.shadow.camera.bottom = -15;
-		this.directionalLight.shadow.bias = -0.0005;
+		this.directionalLight.shadow.camera.far = 30;
+		this.directionalLight.shadow.camera.left = -8;
+		this.directionalLight.shadow.camera.right = 8;
+		this.directionalLight.shadow.camera.top = 8;
+		this.directionalLight.shadow.camera.bottom = -8;
+		this.directionalLight.shadow.bias = -0.001;
+		this.directionalLight.shadow.normalBias = 0.02;
 		this.scene.add(this.directionalLight);
 
-		// --- Hemisphere light for arena atmosphere ---
-		// Sky color (warm arena lights from above), ground color (dark floor reflections)
-		this.hemisphereLight = new THREE.HemisphereLight(0xffeedd, 0x222233, 0.5);
+		// --- Hemisphere light (sky blue top, warm ground bounce) ---
+		this.hemisphereLight = new THREE.HemisphereLight(0x1a2244, 0x110808, 0.2);
 		this.scene.add(this.hemisphereLight);
 	}
 

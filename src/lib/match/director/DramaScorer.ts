@@ -259,6 +259,33 @@ function extractDramaEvents(state: MatchState, prevTick: number): DramaEvent[] {
 					method: entry.data.method as string
 				});
 				break;
+
+			case 'finisher_start':
+				events.push({
+					type: 'finisher_trigger',
+					attackerId: entry.data.attackerId as string,
+					defenderId: entry.data.defenderId as string,
+					moveId: entry.data.moveId as string,
+					moveName: entry.data.moveName as string
+				});
+				break;
+
+			case 'finisher_impact':
+				events.push({
+					type: 'finisher_impact',
+					attackerId: entry.data.attackerId as string,
+					damage: (entry.data.damage as number) ?? 0,
+					knockdownForced: (entry.data.knockdownForced as boolean) ?? false
+				});
+				break;
+
+			case 'finisher_counter':
+				events.push({
+					type: 'counter_finisher',
+					defenderId: entry.data.defenderId as string,
+					attackerId: entry.data.attackerId as string
+				});
+				break;
 		}
 	}
 

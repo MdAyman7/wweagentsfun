@@ -190,17 +190,18 @@ export function getComboMomentumBonus(combo: ComboDefinition, step: number): num
 
 const DEFAULT_COMBOS: ComboDefinition[] = [
 	// ── Brawler Combos ──
+	// Combo window frames scaled 3× for cinematic pacing
 	{
 		id: 'jab_jab_chop',
 		name: 'One-Two Chop',
 		style: 'brawler',
 		momentumThreshold: 0,
 		finisherUnlock: false,
-		cooldownFrames: 120, // 2 second cooldown
+		cooldownFrames: 300,
 		steps: [
-			{ moveId: 'jab', windowFrames: 14 },
-			{ moveId: 'jab', windowFrames: 14 },
-			{ moveId: 'chop', windowFrames: 0 }  // 0 = final step, no chain
+			{ moveId: 'jab', windowFrames: 42 },
+			{ moveId: 'jab', windowFrames: 42 },
+			{ moveId: 'chop', windowFrames: 0 }
 		]
 	},
 	{
@@ -209,10 +210,10 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 		style: 'brawler',
 		momentumThreshold: 20,
 		finisherUnlock: false,
-		cooldownFrames: 180,
+		cooldownFrames: 420,
 		steps: [
-			{ moveId: 'chop', windowFrames: 16 },
-			{ moveId: 'forearm_smash', windowFrames: 14 },
+			{ moveId: 'chop', windowFrames: 48 },
+			{ moveId: 'forearm_smash', windowFrames: 42 },
 			{ moveId: 'clothesline', windowFrames: 0 }
 		]
 	},
@@ -222,11 +223,11 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 		style: 'brawler',
 		momentumThreshold: 40,
 		finisherUnlock: true,
-		cooldownFrames: 300,
+		cooldownFrames: 600,
 		steps: [
-			{ moveId: 'jab', windowFrames: 12 },
-			{ moveId: 'jab', windowFrames: 12 },
-			{ moveId: 'forearm_smash', windowFrames: 14 },
+			{ moveId: 'jab', windowFrames: 36 },
+			{ moveId: 'jab', windowFrames: 36 },
+			{ moveId: 'forearm_smash', windowFrames: 42 },
 			{ moveId: 'superkick', windowFrames: 0 }
 		],
 		damageScaling: [1.0, 1.1, 1.25, 1.5],
@@ -240,10 +241,10 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 		style: 'powerhouse',
 		momentumThreshold: 30,
 		finisherUnlock: false,
-		cooldownFrames: 240,
+		cooldownFrames: 540,
 		steps: [
-			{ moveId: 'body_slam', windowFrames: 18 },
-			{ moveId: 'vertical_suplex', windowFrames: 16 },
+			{ moveId: 'body_slam', windowFrames: 54 },
+			{ moveId: 'vertical_suplex', windowFrames: 48 },
 			{ moveId: 'powerbomb', windowFrames: 0 }
 		],
 		damageScaling: [1.0, 1.2, 1.5],
@@ -255,9 +256,9 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 		style: 'powerhouse',
 		momentumThreshold: 15,
 		finisherUnlock: false,
-		cooldownFrames: 180,
+		cooldownFrames: 420,
 		steps: [
-			{ moveId: 'backbreaker', windowFrames: 16 },
+			{ moveId: 'backbreaker', windowFrames: 48 },
 			{ moveId: 'ddt', windowFrames: 0 }
 		]
 	},
@@ -269,10 +270,10 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 		style: 'highflyer',
 		momentumThreshold: 25,
 		finisherUnlock: false,
-		cooldownFrames: 180,
+		cooldownFrames: 420,
 		steps: [
-			{ moveId: 'kick', windowFrames: 14 },
-			{ moveId: 'enzuigiri', windowFrames: 16 },
+			{ moveId: 'kick', windowFrames: 42 },
+			{ moveId: 'enzuigiri', windowFrames: 48 },
 			{ moveId: 'dropkick', windowFrames: 0 }
 		]
 	},
@@ -282,10 +283,10 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 		style: 'highflyer',
 		momentumThreshold: 50,
 		finisherUnlock: true,
-		cooldownFrames: 360,
+		cooldownFrames: 720,
 		steps: [
-			{ moveId: 'dropkick', windowFrames: 18 },
-			{ moveId: 'enzuigiri', windowFrames: 16 },
+			{ moveId: 'dropkick', windowFrames: 54 },
+			{ moveId: 'enzuigiri', windowFrames: 48 },
 			{ moveId: 'diving_crossbody', windowFrames: 0 }
 		],
 		damageScaling: [1.0, 1.2, 1.6],
@@ -299,10 +300,10 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 		style: 'technician',
 		momentumThreshold: 10,
 		finisherUnlock: false,
-		cooldownFrames: 180,
+		cooldownFrames: 420,
 		steps: [
-			{ moveId: 'headlock_takeover', windowFrames: 18 },
-			{ moveId: 'snap_suplex', windowFrames: 16 },
+			{ moveId: 'headlock_takeover', windowFrames: 54 },
+			{ moveId: 'snap_suplex', windowFrames: 48 },
 			{ moveId: 'neckbreaker', windowFrames: 0 }
 		],
 		staminaScaling: [1.0, 1.1, 1.2]  // technicians are more efficient
@@ -313,11 +314,11 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 		style: 'technician',
 		momentumThreshold: 40,
 		finisherUnlock: true,
-		cooldownFrames: 360,
+		cooldownFrames: 720,
 		steps: [
-			{ moveId: 'snap_suplex', windowFrames: 18 },
-			{ moveId: 'vertical_suplex', windowFrames: 18 },
-			{ moveId: 'german_suplex', windowFrames: 16 },
+			{ moveId: 'snap_suplex', windowFrames: 54 },
+			{ moveId: 'vertical_suplex', windowFrames: 54 },
+			{ moveId: 'german_suplex', windowFrames: 48 },
 			{ moveId: 'german_suplex', windowFrames: 0 }
 		],
 		damageScaling: [1.0, 1.15, 1.35, 1.6],
@@ -332,9 +333,9 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 		style: 'universal',
 		momentumThreshold: 0,
 		finisherUnlock: false,
-		cooldownFrames: 90,
+		cooldownFrames: 240,
 		steps: [
-			{ moveId: 'jab', windowFrames: 12 },
+			{ moveId: 'jab', windowFrames: 36 },
 			{ moveId: 'kick', windowFrames: 0 }
 		]
 	}

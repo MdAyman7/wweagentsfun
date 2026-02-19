@@ -32,10 +32,10 @@ const ATMOSPHERE_UPDATE_INTERVAL = 30;
  *   near_finish  → flash + sparks
  */
 export class AtmosphereController {
-	private targetExposure = 1.2;
+	private targetExposure = 1.0;
 	private targetSpotIntensity = 1.0;
 	private targetTitantronIntensity = 0.4;
-	private targetFogDensity = 0.015;
+	private targetFogDensity = 0.025;
 	private ticksSinceAtmosphereUpdate = 0;
 	private flashCooldown = 0;
 
@@ -71,6 +71,26 @@ export class AtmosphereController {
 					transitionTicks: 15
 				};
 				this.flashCooldown = 60;
+			} else if (event.type === 'finisher_trigger' && this.flashCooldown <= 0) {
+				// Finisher setup: dramatic lighting boost
+				atmosphereOverride = {
+					type: 'atmosphere',
+					exposure: 2.2,
+					spotlightIntensity: 2.0,
+					titantronIntensity: 1.0,
+					transitionTicks: 10
+				};
+				this.flashCooldown = 30;
+			} else if (event.type === 'finisher_impact') {
+				// Finisher impact: intense flash
+				atmosphereOverride = {
+					type: 'atmosphere',
+					exposure: 2.8,
+					spotlightIntensity: 2.2,
+					titantronIntensity: 1.0,
+					transitionTicks: 3
+				};
+				this.flashCooldown = 30;
 			}
 		}
 
@@ -98,25 +118,29 @@ export class AtmosphereController {
 		let fogDensity: number;
 
 		if (tension < 0.3) {
-			exposure = 1.2;
+			// Low tension: dark, intimate baseline
+			exposure = 1.0;
 			spotIntensity = 1.0;
 			titantronIntensity = 0.4;
-			fogDensity = 0.015;
+			fogDensity = 0.025;
 		} else if (tension < 0.6) {
-			exposure = lerp(1.2, 1.35, remap(tension, 0.3, 0.6, 0, 1));
-			spotIntensity = 1.0;
+			// Medium tension: ring gets slightly brighter
+			exposure = lerp(1.0, 1.15, remap(tension, 0.3, 0.6, 0, 1));
+			spotIntensity = lerp(1.0, 1.1, remap(tension, 0.3, 0.6, 0, 1));
 			titantronIntensity = lerp(0.4, 0.6, remap(tension, 0.3, 0.6, 0, 1));
-			fogDensity = 0.015;
+			fogDensity = 0.025;
 		} else if (tension < 0.8) {
-			exposure = lerp(1.35, 1.6, remap(tension, 0.6, 0.8, 0, 1));
-			spotIntensity = lerp(1.0, 1.3, remap(tension, 0.6, 0.8, 0, 1));
+			// High tension: ring lights intensify, fog thins to reveal action
+			exposure = lerp(1.15, 1.4, remap(tension, 0.6, 0.8, 0, 1));
+			spotIntensity = lerp(1.1, 1.4, remap(tension, 0.6, 0.8, 0, 1));
 			titantronIntensity = lerp(0.6, 0.8, remap(tension, 0.6, 0.8, 0, 1));
-			fogDensity = lerp(0.015, 0.01, remap(tension, 0.6, 0.8, 0, 1));
+			fogDensity = lerp(0.025, 0.018, remap(tension, 0.6, 0.8, 0, 1));
 		} else {
-			exposure = lerp(1.6, 1.9, remap(tension, 0.8, 1.0, 0, 1));
-			spotIntensity = lerp(1.3, 1.6, remap(tension, 0.8, 1.0, 0, 1));
+			// Peak tension: ring blazes, surrounding darkness deepens contrast
+			exposure = lerp(1.4, 1.7, remap(tension, 0.8, 1.0, 0, 1));
+			spotIntensity = lerp(1.4, 1.8, remap(tension, 0.8, 1.0, 0, 1));
 			titantronIntensity = lerp(0.8, 1.0, remap(tension, 0.8, 1.0, 0, 1));
-			fogDensity = lerp(0.01, 0.005, remap(tension, 0.8, 1.0, 0, 1));
+			fogDensity = lerp(0.018, 0.012, remap(tension, 0.8, 1.0, 0, 1));
 		}
 
 		// Only emit if values changed significantly
@@ -220,6 +244,71 @@ export class AtmosphereController {
 						effect: 'sparks',
 						position: pos,
 						intensity: 1.2
+					});
+					break;
+				}
+
+				case 'finisher_trigger': {
+					// Sparks burst when finisher is triggered
+					const attackerPos = this.getAgentPosition(event.attackerId, state);
+					vfx.push({
+						type: 'vfx',
+						effect: 'sparks',
+						position: attackerPos,
+						intensity: 2.5
+					});
+					break;
+				}
+
+				case 'finisher_impact': {
+					// Max intensity impact + flash + dust + sparks
+					const attackerId = event.attackerId;
+					const opponent = state.agents.find((a) => a.id !== attackerId);
+					const impactPos: [number, number, number] = opponent
+						? [opponent.positionX, RING_HEIGHT + opponent.height * 0.5, 0]
+						: [0, RING_HEIGHT + 0.8, 0];
+
+					vfx.push({
+						type: 'vfx',
+						effect: 'impact',
+						position: impactPos,
+						intensity: 2.5
+					});
+					vfx.push({
+						type: 'vfx',
+						effect: 'flash',
+						position: impactPos,
+						intensity: 2.0
+					});
+					vfx.push({
+						type: 'vfx',
+						effect: 'dust',
+						position: [impactPos[0], RING_HEIGHT, 0],
+						intensity: 2.0
+					});
+					vfx.push({
+						type: 'vfx',
+						effect: 'sparks',
+						position: impactPos,
+						intensity: 2.0
+					});
+					break;
+				}
+
+				case 'counter_finisher': {
+					// Sparks + flash on successful counter
+					const defenderPos = this.getAgentPosition(event.defenderId, state);
+					vfx.push({
+						type: 'vfx',
+						effect: 'sparks',
+						position: defenderPos,
+						intensity: 2.0
+					});
+					vfx.push({
+						type: 'vfx',
+						effect: 'flash',
+						position: defenderPos,
+						intensity: 1.5
 					});
 					break;
 				}
