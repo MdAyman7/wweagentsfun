@@ -52,6 +52,8 @@
 	let lastTimestamp = 0;
 	let accumulator = 0;
 	const TICK_MS = 1000 / 60;
+	/** Previous X positions per agent for velocity calculation. */
+	let prevPositionX: [number, number] = [0, 0];
 
 	// Atmosphere lerp targets for smooth transitions
 	let atmosphereTarget = { exposure: 1.2, spotlightIntensity: 1.0, titantronIntensity: 0.4, fogDensity: 0.015 };
@@ -195,9 +197,10 @@
 			ticksThisFrame++;
 		}
 
-		// Process hit impact events for VFX
+		// Process hit impact events for VFX + knockback tilt
 		if (matchLoop) {
 			const hitEvents = matchLoop.drainHitEvents();
+			const ms = matchLoop.state;
 			for (const hit of hitEvents) {
 				if (effectsRenderer) {
 					const impactPos: Vec3 = [hit.positionX, 1.8, 0];
@@ -214,6 +217,15 @@
 				if (cameraRig && !hit.blocked) {
 					const shakeIntensity = hit.critical ? 0.08 : hit.intensity * 0.04;
 					cameraRig.shake(shakeIntensity);
+				}
+				// Visual knockback tilt on defender
+				if (wrestlerRenderer && !hit.blocked) {
+					const defenderIdx = ms.agents.findIndex((a) => a.id === hit.defenderId);
+					const attackerIdx = ms.agents.findIndex((a) => a.id === hit.attackerId);
+					if (defenderIdx >= 0 && attackerIdx >= 0) {
+						const knockDir = ms.agents[defenderIdx].positionX > ms.agents[attackerIdx].positionX ? 1 : -1;
+						wrestlerRenderer.applyKnockback(defenderIdx, knockDir, hit.intensity);
+					}
 				}
 			}
 		}
@@ -341,6 +353,14 @@
 			wrestlerPositions.push(pos);
 			wrestlerRenderer.updateTransform(i, pos, [0, qy, 0, qw]);
 
+			// Compute velocity for walk cycle animation
+			const dx = agent.positionX - prevPositionX[i as 0 | 1];
+			const velocity = Math.abs(dx) * 60; // per-frame delta → units/sec
+			// Normalize: ~3 units/sec = full walk speed
+			const normalizedVelocity = Math.min(velocity / 3.0, 1.0);
+			wrestlerRenderer.setVelocity(i, normalizedVelocity);
+			prevPositionX[i as 0 | 1] = agent.positionX;
+
 			let pose: string;
 			switch (agent.phase) {
 				case 'windup':
@@ -351,8 +371,10 @@
 					pose = 'stunned';
 					break;
 				case 'knockdown':
-				case 'getting_up':
 					pose = 'grounded';
+					break;
+				case 'getting_up':
+					pose = 'getting_up';
 					break;
 				case 'recovery':
 					pose = 'recovery';
@@ -360,8 +382,11 @@
 				case 'blocking':
 					pose = 'blocking';
 					break;
+				case 'moving':
+					pose = 'moving';
+					break;
 				case 'taunting':
-					pose = 'stance';
+					pose = 'taunting';
 					break;
 				default:
 					pose = 'stance';

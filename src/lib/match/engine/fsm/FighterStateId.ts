@@ -1,7 +1,7 @@
 /**
  * Fighter State Machine — State Identifiers & Shared Context
  *
- * 10 discrete states. Only one active at a time per fighter.
+ * 14 discrete states. Only one active at a time per fighter.
  * All transitions are deterministic (driven by timers + game events, never Math.random).
  *
  * STATE DIAGRAM (text format):
@@ -28,12 +28,12 @@
  *        │    returns to IDLE
  *        │
  *        ▼
- *   ATTACK_WINDUP ──timer──▶ ATTACK_ACTIVE ──timer──▶ ATTACK_RECOVERY ──timer──▶ IDLE
- *        │                        │                         │
- *        │ (interrupted by        │ (combat resolves        │
- *        │  stun/knockdown)       │  in this phase)         │
- *        ▼                        ▼                         ▼
- *   STUNNED ◀──── hit by attack ─────────────────────────────
+ *   ATTACK_WINDUP ──timer──▶ ATTACK_ACTIVE ──timer──▶ ATTACK_RECOVERY ──▶ COMBO_WINDOW
+ *        │                        │                         │                │
+ *        │ (interrupted by        │ (combat resolves        │       REQUEST_COMBO_ATTACK
+ *        │  stun/knockdown)       │  in this phase)         │        → ATTACK_WINDUP (chain)
+ *        ▼                        ▼                         ▼       window expires → IDLE
+ *   STUNNED ◀──── hit by attack ──────────────────────────────────────────────┘
  *   (timer-based, can't act)
  *   returns to IDLE
  *        │
@@ -51,25 +51,48 @@
  *   - STUNNED can be interrupted by KNOCKED_DOWN (escalation)
  *   - KNOCKED_DOWN and GETTING_UP can NOT be interrupted (immune)
  *   - ATTACK_RECOVERY can be interrupted by STUNNED or KNOCKED_DOWN
+ *   - COMBO_WINDOW can be interrupted by STUNNED or KNOCKED_DOWN
+ *   - FINISHER_SETUP has super armor (immune to stun, can be knocked down or countered)
+ *   - FINISHER_IMPACT is fully immune (cannot be interrupted)
+ *   - FINISHER_LOCKED is fully immune (cannot be interrupted, waits for impact)
+ *
+ * FINISHER SEQUENCE:
+ *   - IDLE + REQUEST_FINISHER → FINISHER_SETUP (attacker side)
+ *   - Opponent receives FINISHER_LOCK → FINISHER_LOCKED (defender side)
+ *   - FINISHER_SETUP timer expires → FINISHER_IMPACT
+ *   - FINISHER_IMPACT timer expires → ATTACK_RECOVERY (reuses normal recovery)
+ *   - Counter-finisher: COUNTER_FINISHER during FINISHER_SETUP → STUNNED (attacker)
+ *                       FINISHER_COUNTER_SUCCESS → IDLE (defender)
  *
  * ANTI-SPAM:
  *   - IDLE enforces a minimum cooldown before allowing the next attack
  *   - Transition to ATTACK_WINDUP requires cooldown to be 0
- *   - Cooldown is set when entering IDLE from ATTACK_RECOVERY
+ *   - Cooldown is set when entering IDLE from ATTACK_RECOVERY or COMBO_WINDOW
+ *
+ * COMBO CHAINING:
+ *   - After ATTACK_RECOVERY, if a combo is active, enters COMBO_WINDOW
+ *   - COMBO_WINDOW is a brief state (12–18 frames) where the next combo attack can be queued
+ *   - REQUEST_COMBO_ATTACK in COMBO_WINDOW → ATTACK_WINDUP (skip cooldown)
+ *   - Window expires → IDLE (combo dropped)
+ *   - Getting hit or knocked down during window → combo broken
  */
 
-/** The 10 discrete combat states. */
+/** The 14 discrete combat states. */
 export type FighterStateId =
 	| 'IDLE'
 	| 'MOVING'
 	| 'ATTACK_WINDUP'
 	| 'ATTACK_ACTIVE'
 	| 'ATTACK_RECOVERY'
+	| 'COMBO_WINDOW'
 	| 'BLOCKING'
 	| 'STUNNED'
 	| 'KNOCKED_DOWN'
 	| 'GETTING_UP'
-	| 'TAUNTING';
+	| 'TAUNTING'
+	| 'FINISHER_SETUP'
+	| 'FINISHER_IMPACT'
+	| 'FINISHER_LOCKED';
 
 /**
  * Shared context that every state can read/write.
@@ -109,6 +132,20 @@ export interface FighterContext {
 	/** Number of knockdowns this match. */
 	knockdownCount: number;
 
+	// ─── Combo ──────────────────────────────────────────────────
+	/** Whether the next recovery should transition to COMBO_WINDOW instead of IDLE. */
+	comboWindowPending: boolean;
+	/** Frames for the pending combo window (set by match loop before recovery ends). */
+	comboWindowFrames: number;
+
+	// ─── Finisher ───────────────────────────────────────────────
+	/** Whether this fighter is currently executing a finisher (setup or impact). */
+	finisherActive: boolean;
+	/** Whether this fighter is locked by an opponent's finisher. */
+	finisherLocked: boolean;
+	/** ID of the opponent executing the finisher (set when locked). */
+	finisherAttackerId: string | null;
+
 	// ─── Output Actions ─────────────────────────────────────────
 	/**
 	 * Actions to emit at the end of this tick.
@@ -132,7 +169,15 @@ export type FSMAction =
 	| { type: 'TAUNT_END'; momentumGain: number }
 	| { type: 'MOVE_START'; targetX: number }
 	| { type: 'MOVE_TICK'; positionX: number }
-	| { type: 'STATE_CHANGED'; from: FighterStateId; to: FighterStateId };
+	| { type: 'COMBO_WINDOW_OPENED' }
+	| { type: 'COMBO_WINDOW_EXPIRED' }
+	| { type: 'COMBO_CHAINED'; moveId: string }
+	| { type: 'STATE_CHANGED'; from: FighterStateId; to: FighterStateId }
+	| { type: 'FINISHER_SETUP_START'; moveId: string; setupFrames: number }
+	| { type: 'FINISHER_IMPACT_START'; moveId: string }
+	| { type: 'FINISHER_LOCKED' }
+	| { type: 'FINISHER_COUNTERED'; attackerId: string }
+	| { type: 'FINISHER_COMPLETED'; moveId: string };
 
 /**
  * External events that the match loop sends INTO the FSM.
@@ -140,10 +185,16 @@ export type FSMAction =
  */
 export type FSMEvent =
 	| { type: 'REQUEST_ATTACK'; moveId: string; windupFrames: number; activeFrames: number; recoveryFrames: number }
+	| { type: 'REQUEST_COMBO_ATTACK'; moveId: string; windupFrames: number; activeFrames: number; recoveryFrames: number }
 	| { type: 'REQUEST_BLOCK' }
 	| { type: 'REQUEST_IDLE' }
 	| { type: 'REQUEST_MOVE'; targetX: number }
 	| { type: 'REQUEST_TAUNT'; durationFrames: number }
 	| { type: 'HIT_RECEIVED'; stunFrames: number; damage: number }
 	| { type: 'KNOCKDOWN'; durationFrames: number }
-	| { type: 'REVERSAL_RECEIVED'; stunFrames: number };
+	| { type: 'REVERSAL_RECEIVED'; stunFrames: number }
+	| { type: 'REQUEST_FINISHER'; moveId: string; setupFrames: number; impactFrames: number; recoveryFrames: number }
+	| { type: 'FINISHER_LOCK'; lockFrames: number; attackerId: string }
+	| { type: 'FINISHER_IMPACT_RECEIVED'; stunFrames: number; damage: number; knockdownForced: boolean }
+	| { type: 'COUNTER_FINISHER'; stunFrames: number }
+	| { type: 'FINISHER_COUNTER_SUCCESS' };

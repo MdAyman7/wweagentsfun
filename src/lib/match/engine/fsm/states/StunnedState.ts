@@ -50,6 +50,11 @@ export class StunnedState extends FighterState {
 				ctx.stateTimer = event.durationFrames;
 				return 'KNOCKED_DOWN';
 
+			case 'FINISHER_LOCK':
+				// Locked by opponent's finisher while stunned
+				ctx.stateTimer = event.lockFrames;
+				return 'FINISHER_LOCKED';
+
 			default:
 				// Ignore voluntary actions while stunned
 				return null;

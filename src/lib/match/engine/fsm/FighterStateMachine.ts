@@ -10,12 +10,16 @@ import { StunnedState } from './states/StunnedState';
 import { KnockedDownState } from './states/KnockedDownState';
 import { GettingUpState } from './states/GettingUpState';
 import { TauntingState } from './states/TauntingState';
+import { ComboWindowState } from './states/ComboWindowState';
+import { FinisherSetupState } from './states/FinisherSetupState';
+import { FinisherImpactState } from './states/FinisherImpactState';
+import { FinisherLockedState } from './states/FinisherLockedState';
 
 /**
  * FighterStateMachine — the core FSM controller for one fighter.
  *
  * Owns:
- *   - The state registry (all 10 states, created once)
+ *   - The state registry (all 14 states, created once)
  *   - The current state pointer
  *   - The shared FighterContext
  *   - The pending event queue
@@ -47,19 +51,27 @@ export class FighterStateMachine {
 	private pendingActiveFrames = 0;
 	private pendingRecoveryFrames = 0;
 
+	/** Cached finisher phase data for finisher sequences. */
+	private pendingImpactFrames = 0;
+	private pendingFinisherRecoveryFrames = 0;
+
 	constructor(fighterId: string, positionX: number) {
-		// Create all 10 states
+		// Create all 14 states
 		this.states = new Map<FighterStateId, FighterState>([
 			['IDLE', new IdleState()],
 			['MOVING', new MovingState()],
 			['ATTACK_WINDUP', new AttackWindupState()],
 			['ATTACK_ACTIVE', new AttackActiveState()],
 			['ATTACK_RECOVERY', new AttackRecoveryState()],
+			['COMBO_WINDOW', new ComboWindowState()],
 			['BLOCKING', new BlockingState()],
 			['STUNNED', new StunnedState()],
 			['KNOCKED_DOWN', new KnockedDownState()],
 			['GETTING_UP', new GettingUpState()],
-			['TAUNTING', new TauntingState()]
+			['TAUNTING', new TauntingState()],
+			['FINISHER_SETUP', new FinisherSetupState()],
+			['FINISHER_IMPACT', new FinisherImpactState()],
+			['FINISHER_LOCKED', new FinisherLockedState()]
 		]);
 
 		// Create shared context
@@ -74,6 +86,11 @@ export class FighterStateMachine {
 			moveSpeed: 0.08, // units per frame (~4.8 units/second)
 			comebackActive: false,
 			knockdownCount: 0,
+			comboWindowPending: false,
+			comboWindowFrames: 0,
+			finisherActive: false,
+			finisherLocked: false,
+			finisherAttackerId: null,
 			pendingActions: []
 		};
 
@@ -119,9 +136,24 @@ export class FighterStateMachine {
 		return this.currentState.id === 'IDLE';
 	}
 
+	/** Whether this fighter is in the combo window (can chain an attack). */
+	get inComboWindow(): boolean {
+		return this.currentState.id === 'COMBO_WINDOW';
+	}
+
 	/** Total knockdowns this match. */
 	get knockdownCount(): number {
 		return this.ctx.knockdownCount;
+	}
+
+	/** Whether this fighter is currently executing a finisher (setup or impact phase). */
+	get inFinisher(): boolean {
+		return this.ctx.finisherActive;
+	}
+
+	/** Whether this fighter is locked by an opponent's finisher. */
+	get isFinisherLocked(): boolean {
+		return this.ctx.finisherLocked;
 	}
 
 	// ─── Event Queue ─────────────────────────────────────────────
@@ -132,9 +164,18 @@ export class FighterStateMachine {
 	 */
 	pushEvent(event: FSMEvent): void {
 		// Cache attack phase data for multi-phase transitions
-		if (event.type === 'REQUEST_ATTACK') {
+		if (event.type === 'REQUEST_ATTACK' || event.type === 'REQUEST_COMBO_ATTACK') {
 			this.pendingActiveFrames = event.activeFrames;
 			this.pendingRecoveryFrames = event.recoveryFrames;
+		}
+		// Cache finisher phase data for finisher transitions
+		if (event.type === 'REQUEST_FINISHER') {
+			this.pendingImpactFrames = event.impactFrames;
+			this.pendingFinisherRecoveryFrames = event.recoveryFrames;
+		}
+		// Cache the attacker ID when locked by a finisher
+		if (event.type === 'FINISHER_LOCK') {
+			this.ctx.finisherAttackerId = event.attackerId;
 		}
 		this.eventQueue.push(event);
 	}
@@ -194,6 +235,24 @@ export class FighterStateMachine {
 		this.ctx.positionX = x;
 	}
 
+	/**
+	 * Signal that a combo window should open after the current attack recovery.
+	 * The match loop calls this when a combo chain is available.
+	 * @param windowFrames — duration of the combo window (from ComboStep.windowFrames)
+	 */
+	setComboWindow(windowFrames: number): void {
+		this.ctx.comboWindowPending = true;
+		this.ctx.comboWindowFrames = windowFrames;
+	}
+
+	/**
+	 * Cancel any pending combo window (e.g., on miss or reversal).
+	 */
+	clearComboWindow(): void {
+		this.ctx.comboWindowPending = false;
+		this.ctx.comboWindowFrames = 0;
+	}
+
 	// ─── Internal ────────────────────────────────────────────────
 
 	/**
@@ -235,6 +294,25 @@ export class FighterStateMachine {
 		}
 		if ((prevId === 'ATTACK_ACTIVE' || prevId === 'ATTACK_WINDUP') && nextId === 'ATTACK_RECOVERY') {
 			this.ctx.stateTimer = this.pendingRecoveryFrames;
+		}
+
+		// ── Combo window timer ──
+		// When transitioning from ATTACK_RECOVERY → COMBO_WINDOW,
+		// apply the combo window duration from the context.
+		if (prevId === 'ATTACK_RECOVERY' && nextId === 'COMBO_WINDOW') {
+			this.ctx.stateTimer = this.ctx.comboWindowFrames;
+			// Clear attack cooldown — combo chaining bypasses the anti-spam gate
+			this.ctx.attackCooldown = 0;
+		}
+
+		// ── Finisher chain timer overrides ──
+		// FINISHER_SETUP → FINISHER_IMPACT: apply impact frames
+		if (prevId === 'FINISHER_SETUP' && nextId === 'FINISHER_IMPACT') {
+			this.ctx.stateTimer = this.pendingImpactFrames;
+		}
+		// FINISHER_IMPACT → ATTACK_RECOVERY: apply finisher recovery frames
+		if (prevId === 'FINISHER_IMPACT' && nextId === 'ATTACK_RECOVERY') {
+			this.ctx.stateTimer = this.pendingFinisherRecoveryFrames;
 		}
 
 		// Enter new state

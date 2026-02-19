@@ -78,6 +78,17 @@ export class IdleState extends FighterState {
 				ctx.stateTimer = event.stunFrames;
 				return 'STUNNED';
 
+			case 'REQUEST_FINISHER':
+				// Finisher request — enter the cinematic setup phase
+				ctx.activeMoveId = event.moveId;
+				ctx.stateTimer = event.setupFrames;
+				return 'FINISHER_SETUP';
+
+			case 'FINISHER_LOCK':
+				// Locked by opponent's finisher
+				ctx.stateTimer = event.lockFrames;
+				return 'FINISHER_LOCKED';
+
 			default:
 				return null;
 		}

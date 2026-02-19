@@ -6,7 +6,7 @@ import type { FighterStateId, FSMAction } from './fsm';
 import { MoveRegistry } from '../../combat/MoveRegistry';
 import { SeededRandom } from '../../utils/random';
 import { clamp } from '../../utils/math';
-import { Agent } from './Agent';
+import { Agent, type DecisionContext } from './Agent';
 import { CombatResolver } from './CombatResolver';
 import { ComebackSystem } from './ComebackSystem';
 import { EmotionMachine } from './EmotionMachine';
@@ -16,6 +16,9 @@ import { computeEffectiveModifiers } from './TraitFormulas';
 import { createDefaultPsychState, PSYCHOLOGY_EVAL_INTERVAL } from './PsychologyTypes';
 import { PSYCH_PROFILES } from './BalanceConfig';
 import { matchReducer } from './MatchReducer';
+import { ComboTracker, type ComboBreakReason } from './ComboTracker';
+import { ComboRegistry } from '../../combat/ComboRegistry';
+import { FinisherTable } from '../../combat/FinisherTable';
 import type { Seed } from '../../utils/types';
 
 // ─── Hit Impact Event (consumed by rendering layer) ─────────────────
@@ -37,6 +40,32 @@ export interface HitImpactEvent {
 	blocked: boolean;
 	/** Intensity 0-1 based on damage relative to max health */
 	intensity: number;
+}
+
+// ─── Debug Interface ────────────────────────────────────────────────
+
+/** Phase names emitted by the debug logger. */
+export type DebugPhase = 'tick' | 'psychology' | 'decision' | 'fsm' | 'movement' | 'combat' | 'reaction' | 'win_check';
+
+/**
+ * MatchDebugger — optional observer attached to MatchLoop for diagnostic tracing.
+ *
+ * Implement this interface to receive per-phase trace data during simulation.
+ * Zero overhead when not attached (all calls are guarded by null check).
+ *
+ * Usage:
+ *   const debugger = new ConsoleMatchDebugger();
+ *   matchLoop.setDebugger(debugger);
+ *   matchLoop.step(); // → debugger receives callbacks
+ *   matchLoop.setDebugger(null); // detach
+ */
+export interface MatchDebugger {
+	/** Called at the start of each tick with the upcoming tick number. */
+	onTickStart(tick: number): void;
+	/** Called after each phase completes with the phase name and current state snapshot. */
+	onPhase(phase: DebugPhase, state: MatchState): void;
+	/** Called at the end of each tick with the final state. */
+	onTickEnd(state: MatchState): void;
 }
 
 // ─── Config ─────────────────────────────────────────────────────────
@@ -84,15 +113,30 @@ const DT = 1 / 60;
 /**
  * MatchLoop — the core simulation driver.
  *
- * Creates the initial state, then runs tick-by-tick.
- * Each tick:
- *   1. Advance timers (TICK action via reducer)
- *   2. Psychology evaluation (emotional state machine + modifiers)
- *   3. AI decision phase (agents choose actions, influenced by psychology)
- *   4. Combat resolution (attacks resolve via CombatResolver with psych mods)
- *   5. Knockdown detection (health drops → knockdown)
- *   6. Comeback check (rare dramatic moment)
- *   7. Win condition check (KO, TKO, timeout)
+ * Creates the initial state, then runs tick-by-tick at 60Hz.
+ * Each tick follows a deterministic 8-phase pipeline:
+ *
+ * ┌──────────────────────────────────────────────────────────────────────────┐
+ * │ PHASE 1: TICK           — Advance clock, stamina regen, momentum decay  │
+ * │ PHASE 2: PSYCHOLOGY     — Emotion state machine + effective modifiers   │
+ * │ PHASE 3: AI DECISION    — Agents choose: move/attack/block/taunt/idle   │
+ * │ PHASE 4: FSM UPDATE     — Process input events, advance state timers    │
+ * │ PHASE 5: MOVEMENT       — Kinematic position update, knockback decay    │
+ * │ PHASE 6: COMBAT         — Resolve active-phase attacks (once per move)  │
+ * │ PHASE 7: REACTION       — Process combat events (HIT/REVERSAL/KNOCKDOWN)│
+ * │ PHASE 8: WIN CHECK      — KO, TKO, timeout, comeback triggers          │
+ * └──────────────────────────────────────────────────────────────────────────┘
+ *
+ * Invariants:
+ *   - Same seed + same inputs = identical outcome (deterministic via SeededRandom)
+ *   - FSM is the sole authority for phase/phaseFrames/activeMove transitions
+ *   - Position is written exactly once per tick (in Phase 5)
+ *   - Each attack resolves exactly once (tracked by resolvedAttacks set)
+ *   - No game logic lives in the rendering layer
+ *
+ * Debug logging:
+ *   Attach a MatchDebugger via setDebugger() to receive per-phase trace output.
+ *   Disabled by default (zero overhead when no debugger attached).
  *
  * Can be driven externally by calling step() repeatedly (for rendering),
  * or run to completion via runToEnd().
@@ -118,6 +162,18 @@ export class MatchLoop {
 	/** Movement controllers — one per agent. Handles approach, knockback, facing. */
 	private readonly movers: Map<string, MovementController>;
 
+	/** Combo registry — shared set of combo definitions. */
+	private readonly comboRegistry: ComboRegistry;
+
+	/** Combo trackers — one per agent. Tracks active combo chains. */
+	private readonly comboTrackers: Map<string, ComboTracker>;
+
+	/** Finisher table — maps movesets to finisher definitions. */
+	private readonly finisherTable: FinisherTable;
+
+	/** Maps agent IDs to their moveset IDs for finisher lookup. */
+	private readonly agentMovesetIds: Map<string, string>;
+
 	/**
 	 * Tracks which attacks have already been resolved this active phase.
 	 * Keyed by agentId — cleared when the agent leaves ATTACK_ACTIVE.
@@ -131,6 +187,9 @@ export class MatchLoop {
 	 */
 	private _pendingHitEvents: HitImpactEvent[] = [];
 
+	/** Optional debug logger — attached via setDebugger(). */
+	private _debugger: MatchDebugger | null = null;
+
 	constructor(config: MatchLoopConfig) {
 		this.rng = new SeededRandom(config.seed);
 		this.moveRegistry = new MoveRegistry();
@@ -143,6 +202,10 @@ export class MatchLoop {
 		this.effectiveMods = new Map();
 		this.fsms = new Map();
 		this.movers = new Map();
+		this.comboRegistry = new ComboRegistry();
+		this.comboTrackers = new Map();
+		this.finisherTable = new FinisherTable();
+		this.agentMovesetIds = new Map();
 
 		// Create initial state
 		this.state = createInitialState(config);
@@ -151,7 +214,12 @@ export class MatchLoop {
 		const allMoves = this.moveRegistry.getAll();
 		for (let i = 0; i < this.state.agents.length; i++) {
 			const agent = this.state.agents[i];
-			this.agents.set(agent.id, new Agent(this.rng, allMoves));
+
+			// Map psych archetype to combo style
+			const comboStyle = resolveComboStyle(config[i === 0 ? 'wrestler1' : 'wrestler2']);
+
+			// Create agent brain (combo-aware: knows which moves can start combos)
+			this.agents.set(agent.id, new Agent(this.rng, allMoves, this.comboRegistry, comboStyle));
 			this.decisionTimers.set(agent.id, 0);
 
 			// Create FSM for this fighter
@@ -162,6 +230,13 @@ export class MatchLoop {
 			mover.teleport(agent.positionX);
 			this.movers.set(agent.id, mover);
 
+			// Create combo tracker for this fighter
+			this.comboTrackers.set(agent.id, new ComboTracker(this.comboRegistry, comboStyle));
+
+			// Map agent to their moveset ID for finisher lookup
+			const movesetId = resolveMovesetId(config[i === 0 ? 'wrestler1' : 'wrestler2']);
+			this.agentMovesetIds.set(agent.id, movesetId);
+
 			// Compute initial effective modifiers
 			const opponent = this.state.agents[1 - i];
 			const mods = computeEffectiveModifiers(
@@ -170,6 +245,8 @@ export class MatchLoop {
 			this.effectiveMods.set(agent.id, mods);
 		}
 	}
+
+	// ─── Public API ──────────────────────────────────────────────
 
 	/**
 	 * Get the facing sign for a fighter (-1 = facing left, +1 = facing right).
@@ -191,46 +268,111 @@ export class MatchLoop {
 	}
 
 	/**
+	 * Attach a debug logger. Pass null to detach.
+	 * When attached, each phase of step() emits trace data.
+	 */
+	setDebugger(dbg: MatchDebugger | null): void {
+		this._debugger = dbg;
+	}
+
+	// ─── Core Update Loop ────────────────────────────────────────
+
+	/**
 	 * Advance the match by one tick (1/60th of a second).
 	 * Returns true if the match is still running.
+	 *
+	 * EXECUTION ORDER (8 deterministic phases):
+	 *
+	 *  ┌─ Phase 1: TICK ──────────────── clock++, stamina regen, momentum decay
+	 *  │
+	 *  ├─ Phase 2: PSYCHOLOGY ────────── emotion FSM eval (every 20 ticks)
+	 *  │                                 → recompute effective modifiers
+	 *  │
+	 *  ├─ Phase 3: AI DECISION ───────── brain.decide() per agent
+	 *  │                                 → push FSM events (REQUEST_ATTACK, etc.)
+	 *  │                                 → set movement targets
+	 *  │
+	 *  ├─ Phase 4: FSM UPDATE ────────── process queued events → state transitions
+	 *  │                                 → sync phase/activeMove into MatchState
+	 *  │
+	 *  ├─ Phase 5: MOVEMENT ──────────── kinematic position update
+	 *  │                                 → knockback decay
+	 *  │                                 → ring boundary + separation enforcement
+	 *  │                                 → write positionX (ONCE per tick)
+	 *  │
+	 *  ├─ Phase 6: COMBAT ────────────── resolve ATTACK_ACTIVE moves (once each)
+	 *  │                                 → CombatResolver.resolve()
+	 *  │                                 → push HIT_RECEIVED / REVERSAL_RECEIVED
+	 *  │                                 → apply damage, momentum, knockback
+	 *  │                                 → emit HitImpactEvents for VFX
+	 *  │
+	 *  ├─ Phase 7: REACTION ──────────── second FSM pass (same-tick reactions)
+	 *  │                                 → defender → STUNNED immediately
+	 *  │                                 → knockdown detection + FSM push
+	 *  │                                 → comeback trigger/expiry
+	 *  │
+	 *  └─ Phase 8: WIN CHECK ─────────── KO (health=0), TKO (3 knockdowns), timeout
 	 */
 	step(): boolean {
 		if (!this.state.running) return false;
 
-		// 1. Tick — advance timers, stamina regen, decay
-		this.state = matchReducer(this.state, { type: 'TICK' });
+		this._debugger?.onTickStart(this.state.tick + 1);
 
-		// 2. Psychology evaluation (every PSYCHOLOGY_EVAL_INTERVAL ticks)
+		// ╔═══════════════════════════════════════════════════════════╗
+		// ║  PHASE 1: TICK — advance clock, stamina regen, decay     ║
+		// ╚═══════════════════════════════════════════════════════════╝
+		this.state = matchReducer(this.state, { type: 'TICK' });
+		// Tick combo cooldowns for all fighters
+		for (const tracker of this.comboTrackers.values()) {
+			tracker.tick();
+		}
+		this._debugger?.onPhase('tick', this.state);
+
+		// ╔═══════════════════════════════════════════════════════════╗
+		// ║  PHASE 2: PSYCHOLOGY — emotion evaluation + modifiers    ║
+		// ╚═══════════════════════════════════════════════════════════╝
 		if (this.state.tick % PSYCHOLOGY_EVAL_INTERVAL === 0) {
 			this.runPsychologyPhase();
+			this._debugger?.onPhase('psychology', this.state);
 		}
 
-		// 3. AI decisions → pushed into FSMs as events
+		// ╔═══════════════════════════════════════════════════════════╗
+		// ║  PHASE 3: AI DECISION — agents choose actions            ║
+		// ╚═══════════════════════════════════════════════════════════╝
 		this.runDecisionPhase();
+		this._debugger?.onPhase('decision', this.state);
 
-		// 4. Advance FSMs and sync state back to MatchState
+		// ╔═══════════════════════════════════════════════════════════╗
+		// ║  PHASE 4: FSM UPDATE — process input events + advance    ║
+		// ╚═══════════════════════════════════════════════════════════╝
 		this.runFSMPhase();
+		this._debugger?.onPhase('fsm', this.state);
 
-		// 5. Movement phase — update positions, knockback, facing
+		// ╔═══════════════════════════════════════════════════════════╗
+		// ║  PHASE 5: MOVEMENT — positions, knockback, boundaries    ║
+		// ╚═══════════════════════════════════════════════════════════╝
 		this.runMovementPhase();
+		this._debugger?.onPhase('movement', this.state);
 
-		// 6. Combat resolution — resolve active moves that reach 'active' phase.
-		//    This pushes HIT_RECEIVED/REVERSAL_RECEIVED events into defender/attacker FSMs.
+		// ╔═══════════════════════════════════════════════════════════╗
+		// ║  PHASE 6: COMBAT — resolve active-phase attacks          ║
+		// ╚═══════════════════════════════════════════════════════════╝
 		this.runCombatPhase();
+		this._debugger?.onPhase('combat', this.state);
 
-		// 7. ★ SECOND FSM PASS — process combat reaction events (HIT_RECEIVED,
-		//    REVERSAL_RECEIVED, KNOCKDOWN) within the SAME tick so the defender
-		//    transitions to STUNNED immediately, not 1 frame late.
-		this.runFSMPhase();
+		// ╔═══════════════════════════════════════════════════════════╗
+		// ║  PHASE 7: REACTION — combat events + knockdown + comeback║
+		// ╚═══════════════════════════════════════════════════════════╝
+		this.runReactionPhase();
+		this._debugger?.onPhase('reaction', this.state);
 
-		// 8. Knockdown detection (pushes KNOCKDOWN events into FSMs)
-		this.checkKnockdowns();
-
-		// 9. Comeback check
-		this.checkComebacks();
-
-		// 10. Win conditions
+		// ╔═══════════════════════════════════════════════════════════╗
+		// ║  PHASE 8: WIN CHECK — KO, TKO, timeout                   ║
+		// ╚═══════════════════════════════════════════════════════════╝
 		this.checkWinConditions();
+		this._debugger?.onPhase('win_check', this.state);
+
+		this._debugger?.onTickEnd(this.state);
 
 		return this.state.running;
 	}
@@ -262,9 +404,12 @@ export class MatchLoop {
 			const profile = agent.psychProfile;
 			const prevPsych = agent.psych;
 
-			// Evaluate the emotional state machine
+			// Evaluate the emotional state machine (time-aware)
+			const matchElapsed = this.state.elapsed;
+			const matchTimeLimit = this.state.timeLimit;
 			const newPsych = this.emotionMachine.evaluate(
-				agent, opponent, prevPsych, profile
+				agent, opponent, prevPsych, profile,
+				matchElapsed, matchTimeLimit
 			);
 
 			// Check if emotion changed — log it
@@ -306,36 +451,52 @@ export class MatchLoop {
 
 			const fsm = this.fsms.get(agentState.id);
 			const mover = this.movers.get(agentState.id);
+			const distance = Math.abs(agentState.positionX - opponent.positionX);
 
-			// ── Auto-approach: when idle/moving and outside attack range, move toward opponent ──
-			// This runs every tick regardless of decision timer, so fighters always close distance.
-			if (fsm && mover) {
-				const fsmState = fsm.stateId;
-				if (fsmState === 'IDLE' || fsmState === 'MOVING') {
-					const distance = Math.abs(agentState.positionX - opponent.positionX);
-					if (distance > mover.range + 0.1) {
-						// Outside attack range — approach
-						mover.moveTowardOpponent(opponent.positionX);
-					} else {
-						// Inside attack range — stop approaching
-						mover.stopMovement();
-					}
-				}
+			// ── COMBO WINDOW: auto-chain the next combo move ──
+			// When the FSM is in COMBO_WINDOW, the combo tracker knows the next move.
+			// Push it as REQUEST_COMBO_ATTACK to chain into the next windup immediately.
+			if (fsm && fsm.inComboWindow) {
+				this.tryComboChain(agentState, opponent, fsm, distance);
+				continue;
 			}
 
 			// Only decide when FSM accepts input and timer expired
 			if (!fsm || !fsm.acceptsInput || timer > 0) continue;
 
+			// ── FINISHER CHECK: attempt finisher before normal attack ──
+			if (this.tryFinisherTrigger(agentState, opponent, fsm, i)) {
+				continue; // finisher triggered — skip normal decision
+			}
+
 			const brain = this.agents.get(agentState.id);
 			if (!brain) continue;
 
 			const mods = this.effectiveMods.get(agentState.id);
-			const action = brain.decide(agentState, opponent, mods);
 
-			// Reset decision timer
-			this.decisionTimers.set(agentState.id, DECISION_INTERVAL);
+			// Build spatial context for range-aware decisions
+			const ctx: DecisionContext = {
+				distance,
+				attackRange: mover?.range ?? 1.5
+			};
+
+			const action = brain.decide(agentState, opponent, ctx, mods);
+
+			// Reset decision timer (speed modifier affects pacing)
+			const speedMod = mods ? mods.speed : 1.0;
+			const adjustedInterval = Math.round(DECISION_INTERVAL / speedMod);
+			this.decisionTimers.set(agentState.id, clamp(adjustedInterval, 10, 30));
 
 			switch (action.type) {
+				case 'move': {
+					// AI chose to approach — move toward opponent
+					if (mover) {
+						mover.moveTowardOpponent(opponent.positionX);
+						fsm.pushEvent({ type: 'REQUEST_MOVE', targetX: opponent.positionX });
+					}
+					break;
+				}
+
 				case 'mistake': {
 					// Psychology-driven mistake: agent commits to a bad move
 					if (!action.moveId) break;
@@ -381,6 +542,9 @@ export class MatchLoop {
 					if (move.staminaCost > agentState.stamina) break;
 					if (!fsm.canAttack) break;
 
+					// Safety net: reject attack if out of move's hitbox range
+					if (distance > move.hitbox.range + 0.3) break;
+
 					// Deduct stamina
 					this.state = {
 						...this.state,
@@ -392,6 +556,9 @@ export class MatchLoop {
 							};
 						}) as [AgentState, AgentState]
 					};
+
+					// Stop movement on attack commit
+					if (mover) mover.stopMovement();
 
 					// Push attack event into FSM
 					fsm.pushEvent({
@@ -405,14 +572,256 @@ export class MatchLoop {
 				}
 
 				case 'block':
+					if (mover) mover.stopMovement();
 					fsm.pushEvent({ type: 'REQUEST_BLOCK' });
 					break;
 
+				case 'taunt':
+					if (mover) mover.stopMovement();
+					fsm.pushEvent({ type: 'REQUEST_TAUNT', durationFrames: 60 });
+					break;
+
 				case 'idle':
+					// When idle, continue approaching if out of range
+					if (mover && distance > mover.range + 0.1) {
+						mover.moveTowardOpponent(opponent.positionX);
+					} else if (mover) {
+						mover.stopMovement();
+					}
 					fsm.pushEvent({ type: 'REQUEST_IDLE' });
 					break;
 			}
 		}
+	}
+
+	/**
+	 * Attempt to chain the next combo move during a COMBO_WINDOW.
+	 *
+	 * The combo tracker knows the expected next move. We look it up in the
+	 * move registry, verify stamina, and push REQUEST_COMBO_ATTACK into
+	 * the FSM. If the chain fails (no move, out of stamina, out of range),
+	 * we let the window expire naturally.
+	 */
+	private tryComboChain(
+		agent: AgentState,
+		opponent: AgentState,
+		fsm: FighterStateMachine,
+		distance: number
+	): void {
+		const tracker = this.comboTrackers.get(agent.id);
+		if (!tracker || !tracker.isInCombo) return;
+
+		const nextMoveId = tracker.getNextComboMove();
+		if (!nextMoveId) return;
+
+		const move = this.moveRegistry.get(nextMoveId);
+		if (!move) return;
+
+		// Stamina check with combo scaling
+		const staminaScale = tracker.getStaminaScale();
+		const scaledCost = move.staminaCost * staminaScale;
+		if (scaledCost > agent.stamina) return;
+
+		// Range check — allow a generous range for combo chains
+		// (fighters are typically close during combos)
+		if (distance > move.hitbox.range + 0.6) return;
+
+		// Deduct stamina (scaled)
+		this.state = {
+			...this.state,
+			agents: this.state.agents.map((a) => {
+				if (a.id !== agent.id) return a;
+				return {
+					...a,
+					stamina: clamp(a.stamina - scaledCost, 0, a.maxStamina)
+				};
+			}) as [AgentState, AgentState]
+		};
+
+		// Stop movement during combo
+		const mover = this.movers.get(agent.id);
+		if (mover) mover.stopMovement();
+
+		// Push the combo attack into the FSM
+		fsm.pushEvent({
+			type: 'REQUEST_COMBO_ATTACK',
+			moveId: nextMoveId,
+			windupFrames: Math.max(1, move.windupFrames - 2), // slightly faster windup in combo
+			activeFrames: move.activeFrames,
+			recoveryFrames: move.recoveryFrames
+		});
+	}
+
+	/**
+	 * Attempt to trigger a cinematic finisher.
+	 *
+	 * Conditions:
+	 * 1. FSM is in IDLE (accepts input)
+	 * 2. Momentum >= 80
+	 * 3. Opponent health < 35% OR attacker emotion === 'clutch'
+	 * 4. Finisher move available via FinisherTable
+	 * 5. Enough stamina
+	 * 6. Opponent not in finisher sequence already
+	 * 7. Weighted random check passes (finisherBoost from psychology)
+	 *
+	 * @returns true if a finisher was triggered (caller should skip normal decision)
+	 */
+	private tryFinisherTrigger(
+		attacker: AgentState,
+		defender: AgentState,
+		attackerFSM: FighterStateMachine,
+		attackerIndex: number
+	): boolean {
+		// 1. Momentum gate
+		if (!this.finisherTable.canAttemptFinisher(attacker.momentum)) return false;
+
+		// 2. Opponent health threshold OR clutch mode
+		const defenderHealthPct = defender.health / defender.maxHealth;
+		const attackerMods = this.effectiveMods.get(attacker.id);
+		const isClutch = attackerMods && attackerMods.emotion === 'clutch';
+		if (defenderHealthPct >= 0.35 && !isClutch) return false;
+
+		// 3. Get finisher move from table
+		const movesetId = this.agentMovesetIds.get(attacker.id);
+		if (!movesetId) return false;
+		const finisherMove = this.finisherTable.getFinisher(movesetId);
+		if (!finisherMove) return false;
+
+		// 4. Stamina check
+		if (finisherMove.staminaCost > attacker.stamina) return false;
+
+		// 5. Opponent not already in a finisher sequence
+		const defenderFSM = this.fsms.get(defender.id);
+		if (!defenderFSM) return false;
+		if (defenderFSM.isFinisherLocked || defenderFSM.inFinisher) return false;
+		// Also check if attacker isn't already in a finisher
+		if (attackerFSM.inFinisher) return false;
+
+		// 6. Range check (generous — finishers have cinematic close-up)
+		const distance = Math.abs(attacker.positionX - defender.positionX);
+		if (distance > finisherMove.hitbox.range + 0.5) return false;
+
+		// 7. Weighted random check
+		const finisherBoost = attackerMods ? attackerMods.finisherBoost : 0;
+		const comebackBonus = attacker.comebackActive ? 0.25 : 0;
+		const clutchBonus = isClutch ? 0.3 : 0;
+		const triggerChance = 0.15 + finisherBoost * 0.4 + comebackBonus + clutchBonus;
+		if (!this.rng.chance(triggerChance)) return false;
+
+		// ── TRIGGER FINISHER ──
+
+		// Deduct stamina
+		this.state = {
+			...this.state,
+			agents: this.state.agents.map((a) => {
+				if (a.id !== attacker.id) return a;
+				return {
+					...a,
+					stamina: clamp(a.stamina - finisherMove.staminaCost, 0, a.maxStamina)
+				};
+			}) as [AgentState, AgentState]
+		};
+
+		// Stop movement
+		const mover = this.movers.get(attacker.id);
+		if (mover) mover.stopMovement();
+		const defenderMover = this.movers.get(defender.id);
+		if (defenderMover) defenderMover.stopMovement();
+
+		// Setup frames: 30-40 depending on finisher
+		const setupFrames = finisherMove.windupFrames + 20; // cinematic extension
+		const impactFrames = finisherMove.activeFrames;
+		const recoveryFrames = finisherMove.recoveryFrames;
+		const lockFrames = setupFrames + impactFrames;
+
+		// Push REQUEST_FINISHER into attacker FSM
+		attackerFSM.pushEvent({
+			type: 'REQUEST_FINISHER',
+			moveId: finisherMove.id,
+			setupFrames,
+			impactFrames,
+			recoveryFrames
+		});
+
+		// Push FINISHER_LOCK into defender FSM
+		defenderFSM.pushEvent({
+			type: 'FINISHER_LOCK',
+			lockFrames,
+			attackerId: attacker.id
+		});
+
+		// Dispatch FINISHER_START action to reducer (log entry)
+		this.state = matchReducer(this.state, {
+			type: 'FINISHER_START',
+			attackerId: attacker.id,
+			defenderId: defender.id,
+			moveId: finisherMove.id,
+			moveName: finisherMove.name
+		});
+
+		return true;
+	}
+
+	/**
+	 * Check if a counter-finisher should occur during FINISHER_SETUP.
+	 *
+	 * Counter window: first 8 frames of setup only.
+	 * Called once per tick for agents in FINISHER_SETUP state.
+	 */
+	private checkFinisherCounter(
+		attacker: AgentState,
+		defender: AgentState,
+		attackerFSM: FighterStateMachine,
+		defenderFSM: FighterStateMachine
+	): boolean {
+		// Only counter during the first 8 frames of setup
+		const setupTimer = attackerFSM.stateTimer;
+		const setupDuration = attackerFSM.context.stateTimer; // unused — use elapsed instead
+		// The timer counts DOWN from setupFrames. Counter window is the FIRST 8 frames.
+		// So counter is available when (setupFrames - stateTimer) < 8, i.e. stateTimer > (setupFrames - 8).
+		// Since we can't easily get setupFrames here, we approximate: only counter when timer is high (early in setup).
+		// Counter window ends after 8 frames elapsed → timer < (initial - 8).
+		// We track from context: original timer was set at entry, stateTimer counts down.
+		// Simplest: counter only if stateTimer is within top 8 of its range.
+		// But we don't know initial. Let's just check if at least (setupTimer + 8) frames remain...
+		// Actually: stateTimer starts at setupFrames and counts down. Timer > (setupFrames-8) means first 8 frames.
+		// We don't have setupFrames stored. Let's just compare stateTimer to a floor:
+		// If stateTimer >= (total - 8), and total is typically ~34, then stateTimer >= 26.
+		// Simpler approach: counter window = stateTimer > 24 (i.e., within first ~10 frames for typical 34-frame setup)
+		if (setupTimer <= 24) return false;
+
+		// Counter probability per tick
+		const defenderMods = this.effectiveMods.get(defender.id);
+		const reversalSkill = defender.personality.reversalSkill;
+		const reversalMod = defenderMods ? defenderMods.reversal * 0.03 : 0;
+		const clutchBonus = (defenderMods && defenderMods.emotion === 'clutch') ? 0.05 : 0;
+		const counterChance = reversalSkill * 0.08 + reversalMod + clutchBonus;
+
+		if (!this.rng.chance(counterChance)) return false;
+
+		// ── COUNTER-FINISHER SUCCEEDED ──
+
+		// Get the move name for logging
+		const moveId = attackerFSM.activeMoveId ?? '';
+
+		// Push COUNTER_FINISHER to attacker FSM (→ STUNNED)
+		attackerFSM.pushEvent({
+			type: 'COUNTER_FINISHER',
+			stunFrames: 30 // significant stun on failed finisher
+		});
+
+		// Push FINISHER_COUNTER_SUCCESS to defender FSM (→ IDLE)
+		defenderFSM.pushEvent({ type: 'FINISHER_COUNTER_SUCCESS' });
+
+		// Dispatch FINISHER_COUNTER to reducer (momentum + log)
+		this.state = matchReducer(this.state, {
+			type: 'FINISHER_COUNTER',
+			attackerId: attacker.id,
+			defenderId: defender.id,
+			moveId
+		});
+
+		return true;
 	}
 
 	/**
@@ -423,6 +832,19 @@ export class MatchLoop {
 	 * to write it back into the immutable MatchState.
 	 */
 	private runFSMPhase(): void {
+		// ── Counter-finisher check (before FSM advance) ──
+		for (let i = 0; i < this.state.agents.length; i++) {
+			const agent = this.state.agents[i];
+			const fsm = this.fsms.get(agent.id);
+			if (!fsm || fsm.stateId !== 'FINISHER_SETUP') continue;
+
+			const opponent = this.state.agents[1 - i];
+			const opponentFSM = this.fsms.get(opponent.id);
+			if (!opponentFSM) continue;
+
+			this.checkFinisherCounter(agent, opponent, fsm, opponentFSM);
+		}
+
 		for (const agentState of this.state.agents) {
 			const fsm = this.fsms.get(agentState.id);
 			if (!fsm) continue;
@@ -508,6 +930,24 @@ export class MatchLoop {
 				};
 				break;
 
+			case 'COMBO_WINDOW_EXPIRED': {
+				// The combo window timed out — break the combo
+				const tracker = this.comboTrackers.get(agentId);
+				if (tracker && tracker.isInCombo) {
+					const hitCount = tracker.hitCount;
+					const comboId = tracker.comboState.activeComboId ?? '';
+					tracker.onComboBreak('window_expired');
+					this.state = matchReducer(this.state, {
+						type: 'COMBO_BREAK',
+						agentId,
+						comboId,
+						reason: 'window_expired',
+						hitsLanded: hitCount
+					});
+				}
+				break;
+			}
+
 			case 'STATE_CHANGED':
 				// Log significant state transitions
 				if (action.to === 'ATTACK_WINDUP' || action.to === 'BLOCKING' ||
@@ -563,6 +1003,9 @@ export class MatchLoop {
 				attacker, defender, move, attackerMods, defenderMods
 			);
 
+			// Get the combo tracker for this attacker
+			const comboTracker = this.comboTrackers.get(attacker.id);
+
 			if (result.reversed) {
 				// ── Reversal: attacker gets stunned, defender gains momentum ──
 				const stunFrames = result.stunFrames;
@@ -574,6 +1017,22 @@ export class MatchLoop {
 					damage: result.reversalDamage,
 					reversed: true
 				});
+
+				// Break any active combo on reversal
+				if (comboTracker?.isInCombo) {
+					const hitCount = comboTracker.hitCount;
+					const comboId = comboTracker.comboState.activeComboId ?? '';
+					comboTracker.onComboBreak('reversed');
+					this.state = matchReducer(this.state, {
+						type: 'COMBO_BREAK',
+						agentId: attacker.id,
+						comboId,
+						reason: 'reversed',
+						hitsLanded: hitCount
+					});
+				}
+				// Clear any pending combo window
+				attackerFSM?.clearComboWindow();
 
 				// Push REVERSAL_RECEIVED into attacker's FSM
 				// The FSM will transition ATTACK_ACTIVE → STUNNED and clear the move
@@ -601,11 +1060,19 @@ export class MatchLoop {
 				});
 			} else if (result.hit) {
 				// ── Hit confirmed — apply damage, stun, and knockback ──
-				const actualDamage = isBlocking
-					? Math.max(1, Math.round(result.damage * 0.3)) // 70% reduction while blocking
-					: result.damage;
+
+				// Check combo system for damage scaling
+				const comboResult = comboTracker?.onHitLanded(attacker.activeMove, result.damage);
+				const comboDamageScale = comboResult?.damageScale ?? 1.0;
+				const comboMomentumBonus = comboResult?.momentumBonus ?? 0;
+
+				const rawDamage = isBlocking
+					? Math.max(1, Math.round(result.damage * comboDamageScale * 0.3))
+					: Math.round(result.damage * comboDamageScale);
+				const actualDamage = Math.max(1, rawDamage);
+
 				const stunFrames = isBlocking
-					? Math.round(4 + actualDamage * 0.4) // shorter stun when blocked
+					? Math.round(4 + actualDamage * 0.4)
 					: Math.round(6 + actualDamage * 0.8);
 
 				this.state = matchReducer(this.state, {
@@ -617,8 +1084,83 @@ export class MatchLoop {
 					reversed: false
 				});
 
+				// ── Update combo psychology tracking ──
+				if (comboResult && comboTracker) {
+					const currentHits = comboTracker.hitCount;
+					// Update attacker's bestComboLanded
+					if (currentHits > 0) {
+						this.state = {
+							...this.state,
+							agents: this.state.agents.map((a) => {
+								if (a.id === attacker.id && currentHits > a.psych.bestComboLanded) {
+									return { ...a, psych: { ...a.psych, bestComboLanded: currentHits } };
+								}
+								// Update defender's worstComboReceived
+								if (a.id === defender.id && currentHits > a.psych.worstComboReceived) {
+									return { ...a, psych: { ...a.psych, worstComboReceived: currentHits } };
+								}
+								return a;
+							}) as [AgentState, AgentState]
+						};
+					}
+				}
+
+				// ── Combo logging ──
+				if (comboResult?.comboStarted) {
+					this.state = matchReducer(this.state, {
+						type: 'COMBO_START',
+						agentId: attacker.id,
+						comboId: comboResult.comboId!,
+						comboName: comboResult.comboName!
+					});
+					this.state = matchReducer(this.state, {
+						type: 'COMBO_HIT',
+						agentId: attacker.id,
+						comboId: comboResult.comboId!,
+						comboName: comboResult.comboName!,
+						step: comboResult.step,
+						totalSteps: comboResult.totalSteps,
+						hitCount: 1
+					});
+				} else if (comboResult?.comboContinued) {
+					this.state = matchReducer(this.state, {
+						type: 'COMBO_HIT',
+						agentId: attacker.id,
+						comboId: comboResult.comboId!,
+						comboName: comboResult.comboName!,
+						step: comboResult.step,
+						totalSteps: comboResult.totalSteps,
+						hitCount: comboTracker?.hitCount ?? 0
+					});
+				} else if (comboResult?.comboCompleted) {
+					this.state = matchReducer(this.state, {
+						type: 'COMBO_HIT',
+						agentId: attacker.id,
+						comboId: comboResult.comboId!,
+						comboName: comboResult.comboName!,
+						step: comboResult.step,
+						totalSteps: comboResult.totalSteps,
+						hitCount: comboTracker?.hitCount ?? 0
+					});
+					this.state = matchReducer(this.state, {
+						type: 'COMBO_COMPLETE',
+						agentId: attacker.id,
+						comboId: comboResult.comboId!,
+						comboName: comboResult.comboName!,
+						totalHits: comboTracker?.hitCount ?? 0,
+						totalDamage: comboTracker?.comboDamage ?? 0,
+						finisherUnlocked: comboResult.finisherUnlocked
+					});
+					// Reset combo tracker after completion
+					comboTracker?.onComboBreak('window_expired');
+				}
+
+				// ── Set up combo window if the hit was part of an active combo ──
+				if (comboResult && comboResult.windowFrames > 0 && !comboResult.comboCompleted) {
+					attackerFSM?.setComboWindow(comboResult.windowFrames);
+				}
+
 				// Push HIT_RECEIVED into defender's FSM
-				// The FSM will transition the defender to STUNNED state
 				defenderFSM?.pushEvent({
 					type: 'HIT_RECEIVED',
 					stunFrames,
@@ -635,7 +1177,8 @@ export class MatchLoop {
 					);
 				}
 
-				// Emit hit impact event for VFX
+				// Emit hit impact event for VFX (with combo intensity boost)
+				const comboIntensityBoost = comboResult ? comboResult.step * 0.1 : 0;
 				this._pendingHitEvents.push({
 					positionX: (attacker.positionX + defender.positionX) / 2,
 					attackerId: attacker.id,
@@ -644,22 +1187,37 @@ export class MatchLoop {
 					critical: result.critical,
 					reversed: false,
 					blocked: isBlocking,
-					intensity: clamp(actualDamage / 20, 0.2, 1.0)
+					intensity: clamp(actualDamage / 20 + comboIntensityBoost, 0.2, 1.0)
 				});
 
-				// Update attacker's momentum from the combat result
+				// Update attacker's momentum from combat + combo bonus
+				const totalMomentum = result.momentumGain + comboMomentumBonus;
 				this.state = {
 					...this.state,
 					agents: this.state.agents.map((a) => {
 						if (a.id !== attacker.id) return a;
 						return {
 							...a,
-							momentum: clamp(a.momentum + result.momentumGain, 0, 100)
+							momentum: clamp(a.momentum + totalMomentum, 0, 100)
 						};
 					}) as [AgentState, AgentState]
 				};
 			} else {
-				// ── Miss — log it and let the FSM continue the active→recovery flow ──
+				// ── Miss — log it and break any active combo ──
+				if (comboTracker?.isInCombo) {
+					const hitCount = comboTracker.hitCount;
+					const comboId = comboTracker.comboState.activeComboId ?? '';
+					comboTracker.onComboBreak('miss');
+					this.state = matchReducer(this.state, {
+						type: 'COMBO_BREAK',
+						agentId: attacker.id,
+						comboId,
+						reason: 'miss',
+						hitsLanded: hitCount
+					});
+				}
+				attackerFSM?.clearComboWindow();
+
 				this.state = matchReducer(this.state, {
 					type: 'MOVE_MISS',
 					attackerId: attacker.id,
@@ -679,6 +1237,28 @@ export class MatchLoop {
 		}
 	}
 
+	/**
+	 * PHASE 7: REACTION — process combat-generated events in the same tick.
+	 *
+	 * After Phase 6 (Combat) pushes HIT_RECEIVED / REVERSAL_RECEIVED events
+	 * into defender/attacker FSMs, this phase immediately processes them so
+	 * the defender transitions to STUNNED within the SAME tick (not 1 frame late).
+	 *
+	 * Then checks for knockdowns (health threshold → KNOCKED_DOWN) and
+	 * comeback trigger/expiry. A final FSM sync ensures all transitions
+	 * are reflected in MatchState before Phase 8 (Win Check).
+	 */
+	private runReactionPhase(): void {
+		// 7a. Process combat reaction events (second FSM pass)
+		this.runFSMPhase();
+
+		// 7b. Knockdown detection
+		this.checkKnockdowns();
+
+		// 7c. Comeback triggers and expiry
+		this.checkComebacks();
+	}
+
 	private checkKnockdowns(): void {
 		for (const agent of this.state.agents) {
 			if (agent.phase === 'knockdown' || agent.phase === 'getting_up') continue;
@@ -686,9 +1266,28 @@ export class MatchLoop {
 			const healthPct = agent.health / agent.maxHealth;
 			const fsm = this.fsms.get(agent.id);
 
-			// Knockdown when health drops below threshold
+			// Track near-knockdown events on psych state
+			// (health dropped below threshold but not knocked down yet)
 			if (healthPct <= KNOCKDOWN_HEALTH_THRESHOLD && agent.health > 0) {
-				// Chance-based: lower health = higher knockdown chance
+				// Increment near-knockdown counter for psychology system
+				this.state = {
+					...this.state,
+					agents: this.state.agents.map((a) => {
+						if (a.id !== agent.id) return a;
+						if (a.psych.nearKnockdowns === agent.psych.nearKnockdowns) {
+							return {
+								...a,
+								psych: {
+									...a.psych,
+									nearKnockdowns: a.psych.nearKnockdowns + 1
+								}
+							};
+						}
+						return a;
+					}) as [AgentState, AgentState]
+				};
+
+				// Chance-based knockdown: lower health = higher knockdown chance
 				const knockdownChance = 0.15 + (1 - healthPct) * 0.4;
 				if (this.rng.chance(knockdownChance)) {
 					this.state = matchReducer(this.state, {
@@ -839,6 +1438,27 @@ export class MatchLoop {
 		const mistakes = this.state.log.filter((l) => l.type === 'mistake').length;
 		rating += clamp(mistakes * 0.08, 0, 0.3);
 
+		// Frustrated moments add drama (wrestler "losing their cool")
+		const frustratedMoments = this.state.log.filter(
+			(l) => l.type === 'emotion_change' && l.data.to === 'frustrated'
+		).length;
+		rating += clamp(frustratedMoments * 0.1, 0, 0.3);
+
+		// Desperate comebacks are thrilling
+		const desperateMoments = this.state.log.filter(
+			(l) => l.type === 'emotion_change' && l.data.to === 'desperate'
+		).length;
+		rating += clamp(desperateMoments * 0.15, 0, 0.3);
+
+		// Combo chains are exciting — completed combos boost rating significantly
+		const combosCompleted = a.stats.combosCompleted + b.stats.combosCompleted;
+		rating += clamp(combosCompleted * 0.25, 0, 0.6);
+
+		// Long combos are spectacular
+		const longestCombo = Math.max(a.stats.longestCombo, b.stats.longestCombo);
+		if (longestCombo >= 3) rating += 0.2;
+		if (longestCombo >= 5) rating += 0.3;
+
 		return clamp(Math.round(rating * 10) / 10, 0, 5);
 	}
 }
@@ -906,7 +1526,13 @@ function createAgentState(input: WrestlerInput, positionX: number): AgentState {
 			damageDealt: 0,
 			damageTaken: 0,
 			reversals: 0,
-			knockdowns: 0
+			knockdowns: 0,
+			combosStarted: 0,
+			combosCompleted: 0,
+			comboHits: 0,
+			longestCombo: 0,
+			finishersLanded: 0,
+			finishersCaught: 0
 		},
 		personality: input.personality,
 		psychProfile,
@@ -933,6 +1559,45 @@ function mapFSMStateToPhase(stateId: FighterStateId): AgentPhase {
 		case 'KNOCKED_DOWN':      return 'knockdown';
 		case 'GETTING_UP':        return 'getting_up';
 		case 'TAUNTING':          return 'taunting';
+		case 'COMBO_WINDOW':      return 'combo_window';
+		case 'FINISHER_SETUP':    return 'finisher_setup';
+		case 'FINISHER_IMPACT':   return 'finisher_impact';
+		case 'FINISHER_LOCKED':   return 'finisher_locked';
 		default:                  return 'idle';
+	}
+}
+
+/**
+ * Map a wrestler's psych archetype to a combo style string.
+ * Combo styles determine which combos from the ComboRegistry are available.
+ * Falls back to 'universal' if no mapping exists.
+ */
+/**
+ * Map a wrestler's psych archetype to a FinisherTable moveset ID.
+ * Falls back to 'allrounder_a' if no mapping exists.
+ */
+function resolveMovesetId(input: WrestlerInput): string {
+	const archetype = input.psychArchetype?.toLowerCase() ?? '';
+	switch (archetype) {
+		case 'powerhouse': return 'powerhouse_a';
+		case 'highflyer':  return 'highflyer_a';
+		case 'technician': return 'technician_a';
+		case 'brawler':    return 'brawler_a';
+		case 'showman':    return 'psychologist_a';
+		case 'balanced':   return 'allrounder_a';
+		default:           return 'allrounder_a';
+	}
+}
+
+function resolveComboStyle(input: WrestlerInput): string {
+	const archetype = input.psychArchetype?.toLowerCase() ?? '';
+	switch (archetype) {
+		case 'powerhouse': return 'powerhouse';
+		case 'highflyer':  return 'highflyer';
+		case 'technician': return 'technician';
+		case 'brawler':    return 'brawler';
+		case 'showman':    return 'brawler';   // showmen use brawler combos (crowd-pleasing strikes)
+		case 'balanced':   return 'universal';
+		default:           return 'universal';
 	}
 }

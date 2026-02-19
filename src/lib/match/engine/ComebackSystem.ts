@@ -1,4 +1,5 @@
 import type { AgentState, MatchState } from './MatchState';
+import type { AgentPsychState } from './PsychologyTypes';
 import { SeededRandom } from '../../utils/random';
 import { clamp } from '../../utils/math';
 
@@ -29,7 +30,15 @@ const COMEBACK_DEFICIT_THRESHOLD = 0.25;
  *   1. Agent health is below 30% of max
  *   2. Agent is at least 25% health lower than opponent
  *   3. Global comeback cooldown has expired (prevents spam)
- *   4. A random chance check passes (rare event: ~12% base)
+ *   4. A random chance check passes (base ~12%, modified by psychology)
+ *
+ * Psychology modifiers to comeback probability:
+ *   - Clutch emotional state: +200% bonus (wrestler is "in the zone")
+ *   - Desperate emotional state: +100% bonus (nothing to lose)
+ *   - Frustrated emotional state: −50% penalty (too unfocused)
+ *   - Positive crowd heat × crowd sensitivity: bonus (crowd willing them back)
+ *   - Near-knockdown survival count: small bonus per event (narrative tension)
+ *   - High confidence: small penalty (less need for dramatic comeback)
  *
  * During a comeback (5 seconds):
  *   - Damage dealt is boosted by 30% (via CombatResolver)
@@ -68,7 +77,33 @@ export class ComebackSystem {
 			// Late match bonus: comebacks are more likely as time runs out
 			const timeBonus = (state.elapsed / state.timeLimit) * 0.001;
 
-			const chance = baseChance + deficitBonus + timeBonus;
+			// ── Psychology-aware comeback modifiers ──
+			const psych: AgentPsychState = agent.psych;
+
+			// Clutch emotional state massively boosts comeback probability
+			// (the wrestler is "in the zone" — fighting spirit manifest)
+			const clutchBonus = psych.emotion === 'clutch' ? 0.004 : 0;
+
+			// Desperate state also increases comeback chance (nothing to lose)
+			const desperateBonus = psych.emotion === 'desperate' ? 0.002 : 0;
+
+			// Frustrated wrestlers are too unfocused for comebacks
+			const frustratedPenalty = psych.emotion === 'frustrated' ? -0.001 : 0;
+
+			// Crowd heat amplifies comeback potential (crowd willing the fighter back)
+			const crowdBonus = psych.crowdHeat > 0
+				? psych.crowdHeat * agent.psychProfile.crowdSensitivity * 0.002
+				: 0;
+
+			// Near-knockdown survival builds narrative tension (more near-falls = audience invested)
+			const knockdownBonus = psych.nearKnockdowns * 0.0005;
+
+			// High confidence makes comebacks less needed (already doing OK mentally)
+			const confidencePenalty = psych.confidence > 0.6 ? -0.001 : 0;
+
+			const chance = baseChance + deficitBonus + timeBonus
+				+ clutchBonus + desperateBonus + frustratedPenalty
+				+ crowdBonus + knockdownBonus + confidencePenalty;
 
 			if (this.rng.chance(chance)) {
 				return agent.id;

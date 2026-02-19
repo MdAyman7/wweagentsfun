@@ -56,6 +56,18 @@ import { clamp } from '../../utils/math';
  *      - Increases willingness to use signature/finisher
  *      - Boosts damage slightly
  *      - Reduces idle/rest tendency
+ *
+ * 7. ADAPTABILITY FORMULA:
+ *    Adaptability modifies:
+ *      - Hysteresis duration (high adapt = shorter emotion lock)
+ *      - Speed of confidence recovery
+ *      - Reduced idle tendency when losing (adapts strategy)
+ *
+ * 8. SPEED FORMULA:
+ *    effectiveSpeed = emotionMod.speedMod
+ *      × (0.9 + momentum × 0.2)                // high momentum = faster
+ *      × comebackBoost                          // comeback boosts speed
+ *    Affects: decision interval, windup frame reduction
  */
 
 /**
@@ -77,8 +89,12 @@ export interface EffectiveModifiers {
 	reversal: number;
 	/** Critical hit chance multiplier (0.5 - 2.0) */
 	crit: number;
+	/** Speed modifier for decision pacing and attack speed (0.7 - 1.4) */
+	speed: number;
 	/** Willingness to rest/idle (0.0 - 0.6) */
 	idleTendency: number;
+	/** Finisher probability boost (0.0 - 1.0, additive to base finisher chance) */
+	finisherBoost: number;
 	/** The current emotional state (for logging) */
 	emotion: string;
 	/** Confidence level (for logging) */
@@ -140,8 +156,12 @@ export function computeEffectiveModifiers(
 	const staminaMistake = clamp((1 - agent.stamina / agent.maxStamina) * 0.05, 0, 0.05);
 	// Ego can cause careless mistakes when overconfident
 	const egoMistake = psych.emotion === 'overconfident' ? profile.ego * 0.06 : 0;
+	// Frustration compounds mistakes from taken streaks
+	const frustrationMistake = psych.emotion === 'frustrated'
+		? psych.takenStreak * 0.02
+		: 0;
 	const mistakeChance = clamp(
-		baseMistake + fearMistakeBoost + staminaMistake + egoMistake,
+		baseMistake + fearMistakeBoost + staminaMistake + egoMistake + frustrationMistake,
 		0.0,
 		0.3
 	);
@@ -174,18 +194,49 @@ export function computeEffectiveModifiers(
 		2.0
 	);
 
-	// ── 8. Idle Tendency ──
+	// ── 8. Speed Modifier ──
+	// Emotional speed base + momentum boost + comeback boost
+	const rawSpeed = emo.speedMod;
+	const momentumSpeedBoost = 0.9 + momentumPct * 0.2;
+	const comebackSpeedBoost = agent.comebackActive ? 1.15 : 1.0;
+	const speed = clamp(
+		rawSpeed * momentumSpeedBoost * comebackSpeedBoost,
+		0.7,
+		1.4
+	);
+
+	// ── 9. Idle Tendency ──
 	// Low when aggressive/desperate/comeback, high when panicking/low stamina
 	let idleTendency = 0.1;
 	if (psych.emotion === 'panicking') idleTendency = 0.3;
+	if (psych.emotion === 'frustrated') idleTendency = 0.05; // frustrated = keeps going
 	if (psych.emotion === 'desperate') idleTendency = 0.02;
 	if (psych.emotion === 'clutch') idleTendency = 0.05;
 	if (agent.comebackActive) idleTendency = 0.01;
+	// Adaptable wrestlers rest less when losing (they adjust strategy)
+	if (healthAdvantage < -0.15 && profile.adaptability > 0.5) {
+		idleTendency *= (1.0 - profile.adaptability * 0.4);
+	}
 	// Stamina depletion overrides everything except comeback
 	if (!agent.comebackActive && agent.stamina / agent.maxStamina < 0.2) {
 		idleTendency = Math.max(idleTendency, 0.35);
 	}
 	idleTendency = clamp(idleTendency, 0.0, 0.6);
+
+	// ── 10. Finisher Boost ──
+	// Probability boost for finisher moves, driven by momentum + emotion + confidence
+	let finisherBoost = 0;
+	if (momentumPct >= 0.8) {
+		// High momentum: significant finisher urge
+		finisherBoost = 0.2 + profile.momentumInfluence * 0.3;
+		// Clutch state makes finishers feel inevitable
+		if (psych.emotion === 'clutch') finisherBoost += 0.2;
+		// Desperate fighters go for broke
+		if (psych.emotion === 'desperate') finisherBoost += 0.15;
+		// Overconfident wrestlers love the big move
+		if (psych.emotion === 'overconfident') finisherBoost += 0.1;
+	}
+	finisherBoost = clamp(finisherBoost, 0, 1.0);
 
 	return {
 		aggression,
@@ -195,10 +246,21 @@ export function computeEffectiveModifiers(
 		damage,
 		reversal,
 		crit,
+		speed,
 		idleTendency,
+		finisherBoost,
 		emotion: psych.emotion,
 		confidence: psych.confidence
 	};
+}
+
+/**
+ * Compute the effective hysteresis duration for an agent.
+ * Adaptable wrestlers transition between emotions faster.
+ */
+export function computeEffectiveHysteresis(profile: PsychProfile): number {
+	// Base: 60 ticks (1 second). High adaptability reduces to ~36 ticks.
+	return Math.round(60 * (1.0 - profile.adaptability * 0.4));
 }
 
 /**
@@ -218,11 +280,15 @@ function computeFearFactor(
 	const streakFear = psych.takenStreak * 0.08;
 	// Crowd hostility amplifies fear
 	const crowdFear = Math.max(0, -psych.crowdHeat) * profile.crowdSensitivity * 0.15;
+	// Near-knockdown events compound fear
+	const knockdownFear = psych.nearKnockdowns * 0.05;
 	// Confidence counteracts fear
 	const confidenceReduction = psych.confidence * 0.3;
+	// Adaptability reduces fear (can adjust gameplan under pressure)
+	const adaptReduction = profile.adaptability * 0.1;
 
 	return clamp(
-		thresholdedFear + streakFear + crowdFear - confidenceReduction,
+		thresholdedFear + streakFear + crowdFear + knockdownFear - confidenceReduction - adaptReduction,
 		0,
 		1
 	);

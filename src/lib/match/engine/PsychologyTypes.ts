@@ -1,26 +1,27 @@
 /**
  * PsychologyTypes — the emotional and trait system for WWEAgents.
  *
- * EMOTIONAL STATE MACHINE:
+ * EMOTIONAL STATE MACHINE (7 states):
  *
  *   ┌──────────────────────────────────────────────────┐
  *   │                    CALM                          │
  *   │  (default start, neutral modifiers)              │
- *   └──────┬───────┬────────┬───────┬─────────────────┘
- *          │       │        │       │
- *     ┌────▼──┐ ┌──▼────┐ ┌▼─────┐ ├──────────┐
- *     │DOMINAT│ │PANIC  │ │OVER- │ │ CLUTCH   │
- *     │-ING   │ │-KING  │ │CONF. │ │          │
- *     └───┬───┘ └───┬───┘ └──┬───┘ └────┬─────┘
+ *   └──────┬───────┬────────┬───────┬────────┬────────┘
+ *          │       │        │       │        │
+ *     ┌────▼──┐ ┌──▼────┐ ┌▼─────┐ ├────────▼───┐
+ *     │DOMINAT│ │FRUST- │ │OVER- │ │  CLUTCH    │
+ *     │-ING   │ │RATED  │ │CONF. │ │            │
+ *     └───┬───┘ └───┬───┘ └──┬───┘ └────┬───────┘
  *         │         │        │           │
- *         │    ┌────▼────┐   │           │
- *         │    │DESPERATE│◄──┘           │
- *         │    └─────────┘               │
+ *         │    ┌────▼────┐ ┌─▼──────┐    │
+ *         │    │PANICKING│ │DESPERAT│    │
+ *         │    └─────────┘ └────────┘    │
  *         └──────────────────────────────┘
  *
  * Transitions are driven by health differential, momentum, damage
- * streaks, and crowd heat. The state machine is evaluated every
- * PSYCHOLOGY_EVAL_INTERVAL ticks (10 ticks = 6× per second).
+ * streaks, combo chains, crowd heat, time remaining, and near-knockdown
+ * events. The state machine is evaluated every PSYCHOLOGY_EVAL_INTERVAL
+ * ticks (10 ticks = 6× per second).
  */
 
 // ─── Emotional States ───────────────────────────────────────────────
@@ -28,6 +29,7 @@
 export type EmotionalState =
 	| 'calm'
 	| 'dominating'
+	| 'frustrated'
 	| 'panicking'
 	| 'desperate'
 	| 'overconfident'
@@ -53,6 +55,8 @@ export interface EmotionModifiers {
 	reversalMod: number;
 	/** Multiplier on critical hit chance */
 	critMod: number;
+	/** Speed modifier — affects decision interval and windup frames (0.8–1.3) */
+	speedMod: number;
 }
 
 /**
@@ -64,6 +68,9 @@ export interface EmotionModifiers {
  * CALM:          Balanced, no bonuses or penalties. Baseline play.
  * DOMINATING:    High damage, high special move chance, but slightly
  *                lower defense (getting cocky, leaving openings).
+ * FRUSTRATED:    Erratic. Moderate aggression spike but sloppy execution.
+ *                This is the "losing composure" state — the wrestler
+ *                starts telegraphing and making mistakes from anger.
  * PANICKING:     High defense, low offense, high mistake chance.
  *                Scrambling to survive.
  * DESPERATE:     Very high aggression and special moves, but very
@@ -81,7 +88,8 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		mistakeChance: 0.04,
 		damageMod: 1.0,
 		reversalMod: 1.0,
-		critMod: 1.0
+		critMod: 1.0,
+		speedMod: 1.0
 	},
 	dominating: {
 		aggressionMod: 1.3,
@@ -90,7 +98,18 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		mistakeChance: 0.06,
 		damageMod: 1.15,
 		reversalMod: 0.8,
-		critMod: 1.2
+		critMod: 1.2,
+		speedMod: 1.1   // momentum-fueled speed boost
+	},
+	frustrated: {
+		aggressionMod: 1.4,     // angry = more aggressive
+		defenseMod: 0.6,        // too angry to defend properly
+		specialMoveMod: 0.5,    // too erratic for technical moves
+		mistakeChance: 0.14,    // sloppy from anger
+		damageMod: 1.05,        // hits slightly harder (adrenaline)
+		reversalMod: 0.6,       // too emotional for clean reversals
+		critMod: 0.8,           // less precise
+		speedMod: 1.05          // jittery, marginally faster
 	},
 	panicking: {
 		aggressionMod: 0.6,
@@ -99,7 +118,8 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		mistakeChance: 0.15,
 		damageMod: 0.85,
 		reversalMod: 1.3,
-		critMod: 0.6
+		critMod: 0.6,
+		speedMod: 0.85  // fear slows reactions
 	},
 	desperate: {
 		aggressionMod: 1.8,
@@ -108,7 +128,8 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		mistakeChance: 0.20,
 		damageMod: 1.1,
 		reversalMod: 0.5,
-		critMod: 1.4
+		critMod: 1.4,
+		speedMod: 1.15  // adrenaline dump — faster but reckless
 	},
 	overconfident: {
 		aggressionMod: 1.5,
@@ -117,7 +138,8 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		mistakeChance: 0.18,
 		damageMod: 1.2,
 		reversalMod: 0.4,
-		critMod: 1.3
+		critMod: 1.3,
+		speedMod: 0.9   // lazy, showing off
 	},
 	clutch: {
 		aggressionMod: 1.4,
@@ -126,14 +148,15 @@ export const EMOTION_MODIFIERS: Record<EmotionalState, EmotionModifiers> = {
 		mistakeChance: 0.02,
 		damageMod: 1.25,
 		reversalMod: 1.5,
-		critMod: 1.5
+		critMod: 1.5,
+		speedMod: 1.2   // "in the zone" — everything flows faster
 	}
 };
 
 // ─── Psychology Traits ──────────────────────────────────────────────
 
 /**
- * PsychProfile — the 6 psychological trait axes.
+ * PsychProfile — the 7 psychological trait axes.
  * These are STATIC per wrestler (set at match start from roster data).
  * They influence HOW the emotional state machine transitions and
  * how strongly emotional modifiers apply.
@@ -171,6 +194,12 @@ export interface PsychProfile {
 	 *  High: very momentum-dependent, big swings in behavior.
 	 *  Low: consistent regardless of momentum. */
 	momentumInfluence: number;
+
+	/** Adaptability — how quickly the wrestler adjusts strategy mid-match.
+	 *  High: faster emotion transitions, quicker response to opponent patterns.
+	 *  Low: stubborn, sticks to gameplan regardless of results.
+	 *  Affects hysteresis duration and pattern recognition bonus. */
+	adaptability: number;
 }
 
 // ─── Live Psychology State (mutable per-tick) ───────────────────────
@@ -194,6 +223,12 @@ export interface AgentPsychState {
 	crowdHeat: number;
 	/** Momentum trend: positive = building, negative = losing */
 	momentumTrend: number;
+	/** Near-knockdown events this match (health dropped below 15% threshold) */
+	nearKnockdowns: number;
+	/** Best combo chain landed this match (for frustration tracking) */
+	bestComboLanded: number;
+	/** Best combo chain received this match (opponent's longest combo on us) */
+	worstComboReceived: number;
 }
 
 /**
@@ -207,7 +242,10 @@ export function createDefaultPsychState(profile: PsychProfile): AgentPsychState 
 		hitStreak: 0,
 		takenStreak: 0,
 		crowdHeat: 0,
-		momentumTrend: 0
+		momentumTrend: 0,
+		nearKnockdowns: 0,
+		bestComboLanded: 0,
+		worstComboReceived: 0
 	};
 }
 

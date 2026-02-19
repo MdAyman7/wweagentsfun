@@ -99,6 +99,61 @@ export function matchReducer(state: MatchState, action: MatchAction): MatchState
 				{ agentId: action.agentId, moveId: action.moveId }
 			);
 
+		case 'COMBO_START':
+			return addLog(
+				updateAgent(state, action.agentId, (a) => ({
+					...a,
+					stats: { ...a.stats, combosStarted: a.stats.combosStarted + 1 }
+				})),
+				'combo_start',
+				`${getAgentName(state, action.agentId)} starts ${action.comboName}!`,
+				{ agentId: action.agentId, comboId: action.comboId, comboName: action.comboName }
+			);
+
+		case 'COMBO_HIT':
+			return addLog(
+				updateAgent(state, action.agentId, (a) => ({
+					...a,
+					stats: {
+						...a.stats,
+						comboHits: a.stats.comboHits + 1,
+						longestCombo: Math.max(a.stats.longestCombo, action.hitCount)
+					}
+				})),
+				'combo_hit',
+				`${getAgentName(state, action.agentId)} ${action.comboName} — hit ${action.step + 1}/${action.totalSteps}!`,
+				{ agentId: action.agentId, comboId: action.comboId, step: action.step, totalSteps: action.totalSteps, hitCount: action.hitCount }
+			);
+
+		case 'COMBO_COMPLETE':
+			return addLog(
+				updateAgent(state, action.agentId, (a) => ({
+					...a,
+					stats: { ...a.stats, combosCompleted: a.stats.combosCompleted + 1 }
+				})),
+				'combo_complete',
+				`${getAgentName(state, action.agentId)} completes ${action.comboName}! (${action.totalHits} hits, ${action.totalDamage} dmg)${action.finisherUnlocked ? ' — FINISHER UNLOCKED!' : ''}`,
+				{ agentId: action.agentId, comboId: action.comboId, totalHits: action.totalHits, totalDamage: action.totalDamage, finisherUnlocked: action.finisherUnlocked }
+			);
+
+		case 'COMBO_BREAK':
+			return addLog(state, 'combo_break',
+				`${getAgentName(state, action.agentId)}'s combo broken (${action.reason}) after ${action.hitsLanded} hits`,
+				{ agentId: action.agentId, comboId: action.comboId, reason: action.reason, hitsLanded: action.hitsLanded }
+			);
+
+		case 'FINISHER_START':
+			return addLog(state, 'finisher_start',
+				`${getAgentName(state, action.attackerId)} goes for the ${action.moveName}!`,
+				{ attackerId: action.attackerId, defenderId: action.defenderId, moveId: action.moveId, moveName: action.moveName }
+			);
+
+		case 'FINISHER_IMPACT':
+			return finisherImpactReducer(state, action);
+
+		case 'FINISHER_COUNTER':
+			return finisherCounterReducer(state, action);
+
 		case 'MATCH_END':
 			return {
 				...state,
@@ -120,57 +175,16 @@ export function matchReducer(state: MatchState, action: MatchAction): MatchState
 function tickReducer(state: MatchState): MatchState {
 	let s = { ...state, tick: state.tick + 1, elapsed: (state.tick + 1) / 60 };
 
-	// Advance phase timers and stamina regen for each agent
+	// Advance stamina regen and momentum decay for each agent.
+	//
+	// NOTE: Phase timer countdown and phase transitions are handled EXCLUSIVELY
+	// by the FSM (FighterStateMachine) and synced via FSM_SYNC actions.
+	// The reducer does NOT independently advance phases — the FSM is the
+	// sole authority for all phase transitions.
 	s = {
 		...s,
 		agents: s.agents.map((a) => {
-			let agent = { ...a };
-
-			// ── Phase timer countdown ──
-			// NOTE: When using the FSM (FighterStateMachine), phase transitions
-			// are driven by the FSM and synced via FSM_SYNC actions. The timer
-			// countdown here is kept for backward compatibility with non-FSM mode.
-			if (agent.phaseFrames > 0) {
-				agent.phaseFrames--;
-				if (agent.phaseFrames <= 0) {
-					// Phase expired — transition
-					switch (agent.phase) {
-						case 'windup':
-							agent.phase = 'active';
-							agent.phaseFrames = 6; // active window
-							break;
-						case 'active':
-							agent.phase = 'recovery';
-							agent.phaseFrames = 12;
-							agent.activeMove = null;
-							agent.targetId = null;
-							break;
-						case 'recovery':
-							agent.phase = 'idle';
-							agent.activeMove = null;
-							agent.targetId = null;
-							break;
-						case 'blocking':
-							agent.phase = 'idle';
-							break;
-						case 'stun':
-							agent.phase = 'idle';
-							break;
-						case 'knockdown':
-							agent.phase = 'getting_up';
-							agent.phaseFrames = 24; // brief vulnerability window
-							break;
-						case 'getting_up':
-							agent.phase = 'idle';
-							break;
-						case 'taunting':
-							agent.phase = 'idle';
-							break;
-						default:
-							break;
-					}
-				}
-			}
+			const agent = { ...a };
 
 			// ── Stamina regeneration ──
 			// Rate depends on phase: idle = full, active phases = reduced
@@ -179,11 +193,15 @@ function tickReducer(state: MatchState): MatchState {
 				case 'idle': regenRate = 0.35; break;        // ~21 per second
 				case 'moving': regenRate = 0.2; break;       // ~12 per second (light movement)
 				case 'recovery': regenRate = 0.15; break;    // ~9 per second
+				case 'combo_window': regenRate = 0.05; break;// ~3 per second (minimal — combo pressure)
 				case 'blocking': regenRate = -0.3; break;    // DRAINS stamina while blocking
 				case 'stun': regenRate = 0.2; break;         // ~12 per second
 				case 'knockdown': regenRate = 0.25; break;   // ~15 per second
 				case 'getting_up': regenRate = 0.15; break;  // ~9 per second (slow recovery)
 				case 'taunting': regenRate = 0.1; break;     // ~6 per second (minimal)
+				case 'finisher_setup': regenRate = 0; break; // no regen during finisher
+				case 'finisher_impact': regenRate = 0; break;// no regen during finisher
+				case 'finisher_locked': regenRate = 0; break;// no regen while locked
 				default: regenRate = 0; break;               // no regen during attack
 			}
 			// Comeback: 3× regen rate
@@ -306,6 +324,63 @@ function comebackTriggerReducer(state: MatchState, agentId: string): MatchState 
 		agentId,
 		health: getAgent(s, agentId)?.health ?? 0
 	});
+	return s;
+}
+
+function finisherImpactReducer(
+	state: MatchState,
+	action: Extract<MatchAction, { type: 'FINISHER_IMPACT' }>
+): MatchState {
+	// Apply damage to defender
+	let s = updateAgent(state, action.defenderId, (a) => ({
+		...a,
+		health: clamp(a.health - action.damage, 0, a.maxHealth),
+		stats: { ...a.stats, damageTaken: a.stats.damageTaken + action.damage },
+		psych: { ...a.psych, hitStreak: 0, takenStreak: a.psych.takenStreak + 1 }
+	}));
+	// Increment attacker's finishersLanded, drain momentum to 0
+	s = updateAgent(s, action.attackerId, (a) => ({
+		...a,
+		momentum: 0,
+		stats: {
+			...a.stats,
+			finishersLanded: a.stats.finishersLanded + 1,
+			damageDealt: a.stats.damageDealt + action.damage,
+			movesHit: a.stats.movesHit + 1
+		},
+		psych: { ...a.psych, hitStreak: a.psych.hitStreak + 1, takenStreak: 0 }
+	}));
+	s = addLog(s, 'finisher_impact',
+		`${getAgentName(s, action.attackerId)}'s finisher connects for ${action.damage} damage!${action.knockdownForced ? ' KNOCKOUT!' : ''}`,
+		{
+			attackerId: action.attackerId,
+			defenderId: action.defenderId,
+			moveId: action.moveId,
+			damage: action.damage,
+			knockdownForced: action.knockdownForced
+		}
+	);
+	return s;
+}
+
+function finisherCounterReducer(
+	state: MatchState,
+	action: Extract<MatchAction, { type: 'FINISHER_COUNTER' }>
+): MatchState {
+	// Defender gains momentum from counter-finisher
+	let s = updateAgent(state, action.defenderId, (a) => ({
+		...a,
+		momentum: clamp(a.momentum + 25, 0, 100),
+		stats: { ...a.stats, finishersCaught: a.stats.finishersCaught + 1 }
+	}));
+	s = addLog(s, 'finisher_counter',
+		`${getAgentName(s, action.defenderId)} COUNTERS the finisher!`,
+		{
+			attackerId: action.attackerId,
+			defenderId: action.defenderId,
+			moveId: action.moveId
+		}
+	);
 	return s;
 }
 

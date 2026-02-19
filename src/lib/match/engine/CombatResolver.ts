@@ -182,8 +182,17 @@ export class CombatResolver {
 		}
 
 		// Stun frames based on damage (bigger hits = longer stun)
+		// Defender's speed modifier reduces stun (faster recovery from daze)
 		let stunFrames = Math.round(6 + damage * 0.8);
 		if (critical) stunFrames += 8;
+		// Fast defenders recover from stun slightly quicker
+		if (defenderMods && defenderMods.speed > 1.0) {
+			stunFrames = Math.round(stunFrames / (0.8 + defenderMods.speed * 0.2));
+		}
+		// Slow/panicking defenders stay stunned slightly longer
+		if (defenderMods && defenderMods.speed < 0.95) {
+			stunFrames = Math.round(stunFrames * (1.1 - defenderMods.speed * 0.1));
+		}
 		stunFrames = clamp(stunFrames, 6, 60);
 
 		// Description
@@ -203,6 +212,79 @@ export class CombatResolver {
 			stunFrames,
 			description: desc
 		};
+	}
+
+	/**
+	 * Resolve a finisher — guaranteed hit, no dodge/reversal checks.
+	 * Counter-finisher checks happen during FINISHER_SETUP (handled by MatchLoop),
+	 * not here. This method calculates damage only.
+	 *
+	 * Finisher damage formula:
+	 *   baseDamage × 1.5 (finisher multiplier)
+	 *   × staminaModifier (0.5 + staminaPct × 0.6)
+	 *   × regionModifier (1.0 + regionVulnerability × 0.5)
+	 *   × variance (0.95–1.05, tight for consistency)
+	 *   × psychDamageMod (from attackerMods)
+	 *   × comebackModifier (1.3 if active)
+	 *   × clutchCrit (1.3 if emotion === 'clutch')
+	 */
+	resolveFinisher(
+		attacker: AgentState,
+		defender: AgentState,
+		move: MoveDef,
+		attackerMods?: EffectiveModifiers
+	): { damage: number; knockdownForced: boolean; description: string } {
+		// Finisher multiplier — finishers hit harder than normal moves
+		const finisherMultiplier = 1.5;
+
+		// Stamina modifier: tired fighters deal less damage
+		const attackerStaminaPct = attacker.stamina / attacker.maxStamina;
+		const staminaModifier = 0.5 + attackerStaminaPct * 0.6;
+
+		// Region vulnerability: targeting already-damaged areas hurts more
+		const regionKey = move.region as keyof typeof defender.regionDamage;
+		const regionDmg = defender.regionDamage[regionKey] ?? 0;
+		const regionModifier = 1.0 + clamp(regionDmg / 100, 0, 1) * 0.5;
+
+		// Tight variance for finishers (±5% — finishers should feel consistent)
+		const variance = this.rng.float(0.95, 1.05);
+
+		// Psychology damage modifier
+		const psychDamageMod = attackerMods ? attackerMods.damage : 1.0;
+
+		// Comeback modifier
+		const comebackModifier = attacker.comebackActive ? 1.3 : 1.0;
+
+		// Clutch crit: being "in the zone" makes finishers even more devastating
+		const clutchCrit = (attackerMods && attackerMods.emotion === 'clutch') ? 1.3 : 1.0;
+
+		// Final damage
+		const rawDamage = move.baseDamage
+			* finisherMultiplier
+			* staminaModifier
+			* regionModifier
+			* variance
+			* psychDamageMod
+			* comebackModifier
+			* clutchCrit;
+
+		const damage = Math.max(1, Math.round(rawDamage));
+
+		// Knockdown forced if defender health drops to 0 or below 10% after damage
+		const defenderHealthAfter = defender.health - damage;
+		const knockdownForced = defenderHealthAfter <= 0
+			|| (defenderHealthAfter / defender.maxHealth) < 0.10;
+
+		// Description
+		const emotionTag = attackerMods && attackerMods.emotion !== 'calm'
+			? ` [${attackerMods.emotion.toUpperCase()}]`
+			: '';
+		let desc = `${attacker.name} LANDS THE FINISHER ${move.name} for ${damage} damage!`;
+		if (attacker.comebackActive) desc += ' [COMEBACK]';
+		if (clutchCrit > 1.0) desc += ' [CLUTCH]';
+		desc += emotionTag;
+
+		return { damage, knockdownForced, description: desc };
 	}
 
 	/**

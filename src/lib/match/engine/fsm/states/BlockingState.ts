@@ -67,6 +67,11 @@ export class BlockingState extends FighterState {
 				ctx.stateTimer = event.stunFrames;
 				return 'STUNNED';
 
+			case 'FINISHER_LOCK':
+				// Locked by opponent's finisher — block is broken
+				ctx.stateTimer = event.lockFrames;
+				return 'FINISHER_LOCKED';
+
 			default:
 				return null;
 		}

@@ -63,6 +63,11 @@ export class TauntingState extends FighterState {
 				ctx.stateTimer = Math.round(event.stunFrames * TAUNT_STUN_MULTIPLIER);
 				return 'STUNNED';
 
+			case 'FINISHER_LOCK':
+				// Locked by opponent's finisher — taunt interrupted
+				ctx.stateTimer = event.lockFrames;
+				return 'FINISHER_LOCKED';
+
 			default:
 				return null;
 		}

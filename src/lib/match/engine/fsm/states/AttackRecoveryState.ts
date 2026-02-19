@@ -12,9 +12,10 @@ import { ATTACK_COOLDOWN_FRAMES } from './IdleState';
  * can't immediately chain another attack.
  *
  * Transitions OUT:
- *   - Timer expires    → IDLE (with anti-spam cooldown applied)
- *   - HIT_RECEIVED     → STUNNED (punished during recovery!)
- *   - KNOCKDOWN        → KNOCKED_DOWN
+ *   - Timer expires + combo pending → COMBO_WINDOW (combo chain continues)
+ *   - Timer expires + no combo      → IDLE (with anti-spam cooldown applied)
+ *   - HIT_RECEIVED                  → STUNNED (punished during recovery!)
+ *   - KNOCKDOWN                     → KNOCKED_DOWN
  */
 export class AttackRecoveryState extends FighterState {
 	readonly id: FighterStateId = 'ATTACK_RECOVERY';
@@ -29,6 +30,11 @@ export class AttackRecoveryState extends FighterState {
 	update(ctx: FighterContext, _dt: number): FighterStateId | null {
 		ctx.stateTimer--;
 		if (ctx.stateTimer <= 0) {
+			// If a combo window is pending, transition to COMBO_WINDOW
+			// instead of IDLE (the match loop sets this flag during combat resolution)
+			if (ctx.comboWindowPending && ctx.comboWindowFrames > 0) {
+				return 'COMBO_WINDOW';
+			}
 			return 'IDLE';
 		}
 		return null;
@@ -36,6 +42,7 @@ export class AttackRecoveryState extends FighterState {
 
 	exit(ctx: FighterContext): void {
 		// Set anti-spam cooldown so next attack requires a brief pause
+		// (COMBO_WINDOW will clear this on its own if chaining)
 		ctx.attackCooldown = ATTACK_COOLDOWN_FRAMES;
 	}
 

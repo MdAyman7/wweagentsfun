@@ -1,7 +1,7 @@
 /**
  * Fighter State Machine — Barrel Export
  *
- * 10-state deterministic FSM for combat control.
+ * 14-state deterministic FSM for combat control (includes COMBO_WINDOW and FINISHER states).
  * Each fighter gets one FighterStateMachine instance.
  *
  * Usage:
@@ -37,3 +37,7 @@ export { StunnedState } from './states/StunnedState';
 export { KnockedDownState, DEFAULT_KNOCKDOWN_FRAMES, GETTING_UP_FRAMES } from './states/KnockedDownState';
 export { GettingUpState } from './states/GettingUpState';
 export { TauntingState, TAUNT_MOMENTUM_GAIN, TAUNT_STUN_MULTIPLIER } from './states/TauntingState';
+export { ComboWindowState } from './states/ComboWindowState';
+export { FinisherSetupState } from './states/FinisherSetupState';
+export { FinisherImpactState } from './states/FinisherImpactState';
+export { FinisherLockedState } from './states/FinisherLockedState';

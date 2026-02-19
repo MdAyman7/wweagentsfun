@@ -1,6 +1,6 @@
-export { MatchLoop, type MatchLoopConfig, type WrestlerInput, type HitImpactEvent } from './MatchLoop';
+export { MatchLoop, type MatchLoopConfig, type WrestlerInput, type HitImpactEvent, type MatchDebugger, type DebugPhase } from './MatchLoop';
 export { matchReducer } from './MatchReducer';
-export { Agent, type AgentAction } from './Agent';
+export { Agent, type AgentAction, type DecisionContext } from './Agent';
 export { CombatResolver, type CombatResult } from './CombatResolver';
 export { ComebackSystem } from './ComebackSystem';
 export { EmotionMachine } from './EmotionMachine';
@@ -45,3 +45,9 @@ export {
 	DEFAULT_ATTACK_RANGE,
 	RING_Y
 } from './movement';
+
+// ── Combo System ──
+export { ComboTracker, type ComboHitResult, type ComboBreakReason } from './ComboTracker';
+
+// ── Debug ──
+export { ConsoleMatchDebugger, BufferMatchDebugger, type DebugVerbosity } from './MatchDebugLogger';

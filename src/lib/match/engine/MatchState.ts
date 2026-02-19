@@ -49,11 +49,15 @@ export type AgentPhase =
 	| 'windup'
 	| 'active'
 	| 'recovery'
+	| 'combo_window'
 	| 'blocking'
 	| 'stun'
 	| 'knockdown'
 	| 'getting_up'
-	| 'taunting';
+	| 'taunting'
+	| 'finisher_setup'
+	| 'finisher_impact'
+	| 'finisher_locked';
 
 export interface AgentStats {
 	movesHit: number;
@@ -62,6 +66,18 @@ export interface AgentStats {
 	damageTaken: number;
 	reversals: number;
 	knockdowns: number;
+	/** Total combos started. */
+	combosStarted: number;
+	/** Total combos completed (all steps landed). */
+	combosCompleted: number;
+	/** Total combo hits (including combo openers). */
+	comboHits: number;
+	/** Longest combo chain achieved (max consecutive combo hits). */
+	longestCombo: number;
+	/** Total finishers landed successfully. */
+	finishersLanded: number;
+	/** Total finishers caught (counter-finishers). */
+	finishersCaught: number;
 }
 
 export interface AgentPersonality {
@@ -122,6 +138,13 @@ export type MatchAction =
 	| { type: 'COMEBACK_END'; agentId: string }
 	| { type: 'EMOTION_CHANGE'; agentId: string; from: EmotionalState; to: EmotionalState }
 	| { type: 'MISTAKE'; agentId: string; moveId: string }
+	| { type: 'COMBO_START'; agentId: string; comboId: string; comboName: string }
+	| { type: 'COMBO_HIT'; agentId: string; comboId: string; comboName: string; step: number; totalSteps: number; hitCount: number }
+	| { type: 'COMBO_COMPLETE'; agentId: string; comboId: string; comboName: string; totalHits: number; totalDamage: number; finisherUnlocked: boolean }
+	| { type: 'COMBO_BREAK'; agentId: string; comboId: string; reason: string; hitsLanded: number }
+	| { type: 'FINISHER_START'; attackerId: string; defenderId: string; moveId: string; moveName: string }
+	| { type: 'FINISHER_IMPACT'; attackerId: string; defenderId: string; moveId: string; damage: number; knockdownForced: boolean }
+	| { type: 'FINISHER_COUNTER'; attackerId: string; defenderId: string; moveId: string }
 	| { type: 'MATCH_END'; result: MatchResult };
 
 // ─── Log Schema ─────────────────────────────────────────────────────

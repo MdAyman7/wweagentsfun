@@ -75,6 +75,11 @@ export class MovingState extends FighterState {
 			case 'REQUEST_BLOCK':
 				return 'BLOCKING';
 
+			case 'FINISHER_LOCK':
+				// Locked by opponent's finisher — cancel movement
+				ctx.stateTimer = event.lockFrames;
+				return 'FINISHER_LOCKED';
+
 			default:
 				return null;
 		}
