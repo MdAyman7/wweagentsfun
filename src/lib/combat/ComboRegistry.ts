@@ -338,6 +338,242 @@ const DEFAULT_COMBOS: ComboDefinition[] = [
 			{ moveId: 'jab', windowFrames: 36 },
 			{ moveId: 'kick', windowFrames: 0 }
 		]
+	},
+	{
+		id: 'shoot_kick_combo',
+		name: 'Yes! Kicks',
+		style: 'technician',
+		momentumThreshold: 15,
+		finisherUnlock: true,
+		cooldownFrames: 480,
+		steps: [
+			{ moveId: 'shoot_kick', windowFrames: 30 },
+			{ moveId: 'shoot_kick', windowFrames: 30 },
+			{ moveId: 'shoot_kick', windowFrames: 30 },
+			{ moveId: 'shoot_kick', windowFrames: 36 },
+			{ moveId: 'running_knee', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.1, 1.2, 1.3, 1.8],
+		staminaScaling: [1.0, 1.0, 1.1, 1.2, 1.5],
+		momentumBonus: [1, 2, 3, 4, 12]
+	},
+
+	// ── Powerhouse Extended Combos ──
+	{
+		id: 'chokeslam_setup',
+		name: 'Big Man Sequence',
+		style: 'powerhouse',
+		momentumThreshold: 40,
+		finisherUnlock: true,
+		cooldownFrames: 600,
+		steps: [
+			{ moveId: 'big_boot', windowFrames: 54 },
+			{ moveId: 'chokeslam', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.4],
+		momentumBonus: [4, 12]
+	},
+	{
+		id: 'power_slam_chain',
+		name: 'Slam City',
+		style: 'powerhouse',
+		momentumThreshold: 25,
+		finisherUnlock: false,
+		cooldownFrames: 480,
+		steps: [
+			{ moveId: 'scoop_slam', windowFrames: 54 },
+			{ moveId: 'spinebuster', windowFrames: 48 },
+			{ moveId: 'sitout_powerbomb', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.2, 1.5],
+		staminaScaling: [1.0, 1.2, 1.4]
+	},
+	{
+		id: 'powerhouse_beatdown',
+		name: 'Titan Combo',
+		style: 'powerhouse',
+		momentumThreshold: 35,
+		finisherUnlock: true,
+		cooldownFrames: 600,
+		steps: [
+			{ moveId: 'clothesline', windowFrames: 48 },
+			{ moveId: 'belly_to_belly_suplex', windowFrames: 54 },
+			{ moveId: 'gutwrench_powerbomb', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.2, 1.6],
+		momentumBonus: [3, 6, 15]
+	},
+
+	// ── Brawler Extended Combos ──
+	{
+		id: 'mudhole_stomps',
+		name: 'Mudhole Stomps',
+		style: 'brawler',
+		momentumThreshold: 10,
+		finisherUnlock: false,
+		cooldownFrames: 360,
+		steps: [
+			{ moveId: 'kick', windowFrames: 36 },
+			{ moveId: 'shoot_kick', windowFrames: 36 },
+			{ moveId: 'shoot_kick', windowFrames: 36 },
+			{ moveId: 'elbow_smash', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.1, 1.15, 1.3],
+		staminaScaling: [1.0, 1.0, 1.1, 1.2]
+	},
+	{
+		id: 'brawler_flurry',
+		name: 'Brawler Flurry',
+		style: 'brawler',
+		momentumThreshold: 30,
+		finisherUnlock: true,
+		cooldownFrames: 540,
+		steps: [
+			{ moveId: 'jab', windowFrames: 30 },
+			{ moveId: 'chop', windowFrames: 36 },
+			{ moveId: 'forearm_smash', windowFrames: 42 },
+			{ moveId: 'discus_clothesline', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.1, 1.25, 1.5],
+		momentumBonus: [2, 4, 6, 12]
+	},
+	{
+		id: 'striking_combination',
+		name: 'Striking Combination',
+		style: 'brawler',
+		momentumThreshold: 15,
+		finisherUnlock: false,
+		cooldownFrames: 360,
+		steps: [
+			{ moveId: 'jab', windowFrames: 30 },
+			{ moveId: 'jab', windowFrames: 30 },
+			{ moveId: 'superman_punch', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.1, 1.4]
+	},
+
+	// ── High Flyer Extended Combos ──
+	{
+		id: 'lucha_sequence',
+		name: 'Lucha Sequence',
+		style: 'highflyer',
+		momentumThreshold: 35,
+		finisherUnlock: true,
+		cooldownFrames: 600,
+		steps: [
+			{ moveId: 'spinning_heel_kick', windowFrames: 48 },
+			{ moveId: 'springboard_clothesline', windowFrames: 54 },
+			{ moveId: 'tiger_feint_kick', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.25, 1.6],
+		momentumBonus: [3, 8, 15]
+	},
+	{
+		id: 'high_risk_chain',
+		name: 'High Risk Chain',
+		style: 'highflyer',
+		momentumThreshold: 45,
+		finisherUnlock: true,
+		cooldownFrames: 720,
+		steps: [
+			{ moveId: 'enzuigiri', windowFrames: 48 },
+			{ moveId: 'senton_bomb', windowFrames: 54 },
+			{ moveId: 'shooting_star_press', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.3, 1.7],
+		staminaScaling: [1.0, 1.2, 1.5],
+		momentumBonus: [4, 8, 18]
+	},
+
+	// ── Technician Extended Combos ──
+	{
+		id: 'submission_chain',
+		name: 'Submission Chain',
+		style: 'technician',
+		momentumThreshold: 20,
+		finisherUnlock: false,
+		cooldownFrames: 480,
+		steps: [
+			{ moveId: 'neckbreaker', windowFrames: 54 },
+			{ moveId: 'backbreaker', windowFrames: 54 },
+			{ moveId: 'crossface', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.15, 1.3],
+		staminaScaling: [1.0, 1.1, 1.2]
+	},
+	{
+		id: 'mat_wrestling',
+		name: 'Mat Wrestling',
+		style: 'technician',
+		momentumThreshold: 10,
+		finisherUnlock: false,
+		cooldownFrames: 360,
+		steps: [
+			{ moveId: 'headlock_takeover', windowFrames: 54 },
+			{ moveId: 'double_underhook_suplex', windowFrames: 48 },
+			{ moveId: 'german_suplex', windowFrames: 0 }
+		],
+		staminaScaling: [1.0, 1.1, 1.2]
+	},
+	{
+		id: 'suplex_machine',
+		name: 'Suplex Machine',
+		style: 'technician',
+		momentumThreshold: 50,
+		finisherUnlock: true,
+		cooldownFrames: 720,
+		steps: [
+			{ moveId: 'belly_to_belly_suplex', windowFrames: 54 },
+			{ moveId: 'fisherman_suplex', windowFrames: 54 },
+			{ moveId: 't_bone_suplex', windowFrames: 54 },
+			{ moveId: 'german_suplex', windowFrames: 48 },
+			{ moveId: 'german_suplex', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.1, 1.25, 1.4, 1.6],
+		staminaScaling: [1.0, 1.15, 1.3, 1.45, 1.6],
+		momentumBonus: [3, 5, 7, 10, 18]
+	},
+
+	// ── Universal Extended Combos ──
+	{
+		id: 'strike_to_slam',
+		name: 'Strike to Slam',
+		style: 'universal',
+		momentumThreshold: 10,
+		finisherUnlock: false,
+		cooldownFrames: 360,
+		steps: [
+			{ moveId: 'clothesline', windowFrames: 48 },
+			{ moveId: 'body_slam', windowFrames: 0 }
+		]
+	},
+	{
+		id: 'ddt_setup',
+		name: 'DDT Setup',
+		style: 'universal',
+		momentumThreshold: 15,
+		finisherUnlock: false,
+		cooldownFrames: 360,
+		steps: [
+			{ moveId: 'kick', windowFrames: 42 },
+			{ moveId: 'ddt', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.2]
+	},
+	{
+		id: 'peoples_combo',
+		name: "People's Combo",
+		style: 'universal',
+		momentumThreshold: 30,
+		finisherUnlock: true,
+		cooldownFrames: 540,
+		steps: [
+			{ moveId: 'jab', windowFrames: 30 },
+			{ moveId: 'jab', windowFrames: 30 },
+			{ moveId: 'spinebuster', windowFrames: 0 }
+		],
+		damageScaling: [1.0, 1.1, 1.5],
+		momentumBonus: [2, 4, 10]
 	}
 ];
 

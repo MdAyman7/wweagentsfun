@@ -87,7 +87,14 @@ const GRAPPLE_CHAINS: Record<GrapplePosition, GrapplePositionData> = {
 			{ moveId: 'neckbreaker', name: 'Neckbreaker', staminaCost: 7, endsGrapple: true, momentumRequired: 0 },
 			{ moveId: 'vertical_suplex', name: 'Vertical Suplex', staminaCost: 10, endsGrapple: true, momentumRequired: 10 },
 			{ moveId: 'piledriver', name: 'Piledriver', staminaCost: 14, endsGrapple: true, momentumRequired: 30 },
-			{ moveId: 'sleeper_hold', name: 'Sleeper Hold', staminaCost: 4, endsGrapple: false, momentumRequired: 0 }
+			{ moveId: 'tombstone_piledriver', name: 'Tombstone Piledriver', staminaCost: 16, endsGrapple: true, momentumRequired: 40 },
+			{ moveId: 'jawbreaker', name: 'Jawbreaker', staminaCost: 7, endsGrapple: true, momentumRequired: 0 },
+			{ moveId: 'swinging_neckbreaker', name: 'Swinging Neckbreaker', staminaCost: 8, endsGrapple: true, momentumRequired: 0 },
+			{ moveId: 'cutter', name: 'Cutter', staminaCost: 9, endsGrapple: true, momentumRequired: 15 },
+			{ moveId: 'double_underhook_facebuster', name: 'Double Underhook Facebuster', staminaCost: 11, endsGrapple: true, momentumRequired: 20 },
+			{ moveId: 'sleeper_hold', name: 'Sleeper Hold', staminaCost: 4, endsGrapple: false, momentumRequired: 0 },
+			{ moveId: 'stf', name: 'STF', staminaCost: 8, endsGrapple: false, momentumRequired: 15 },
+			{ moveId: 'triangle_choke', name: 'Triangle Choke', staminaCost: 8, endsGrapple: false, momentumRequired: 15 }
 		],
 		transitions: [
 			{
@@ -120,7 +127,13 @@ const GRAPPLE_CHAINS: Record<GrapplePosition, GrapplePositionData> = {
 			{ moveId: 'german_suplex', name: 'German Suplex', staminaCost: 12, endsGrapple: true, momentumRequired: 10 },
 			{ moveId: 'backbreaker', name: 'Backbreaker', staminaCost: 8, endsGrapple: true, momentumRequired: 0 },
 			{ moveId: 'body_slam', name: 'Back Body Drop', staminaCost: 8, endsGrapple: true, momentumRequired: 0 },
-			{ moveId: 'powerbomb', name: 'Powerbomb', staminaCost: 14, endsGrapple: true, momentumRequired: 30 }
+			{ moveId: 'powerbomb', name: 'Powerbomb', staminaCost: 14, endsGrapple: true, momentumRequired: 30 },
+			{ moveId: 'samoan_drop', name: 'Samoan Drop', staminaCost: 10, endsGrapple: true, momentumRequired: 0 },
+			{ moveId: 'belly_to_belly_suplex', name: 'Belly-to-Belly Suplex', staminaCost: 9, endsGrapple: true, momentumRequired: 0 },
+			{ moveId: 'gutwrench_powerbomb', name: 'Gutwrench Powerbomb', staminaCost: 14, endsGrapple: true, momentumRequired: 25 },
+			{ moveId: 'spinning_fireman_carry', name: 'Spinning Fireman Carry', staminaCost: 14, endsGrapple: true, momentumRequired: 30 },
+			{ moveId: 'fireman_carry_slam', name: "Fireman's Carry Slam", staminaCost: 12, endsGrapple: true, momentumRequired: 15 },
+			{ moveId: 'coquina_clutch', name: 'Coquina Clutch', staminaCost: 6, endsGrapple: false, momentumRequired: 10 }
 		],
 		transitions: [
 			{
@@ -146,7 +159,12 @@ const GRAPPLE_CHAINS: Record<GrapplePosition, GrapplePositionData> = {
 			{ moveId: 'headlock_takeover', name: 'Headlock Takeover', staminaCost: 6, endsGrapple: true, momentumRequired: 0 },
 			{ moveId: 'neckbreaker', name: 'Side Neckbreaker', staminaCost: 7, endsGrapple: true, momentumRequired: 0 },
 			{ moveId: 'ddt', name: 'Side DDT', staminaCost: 8, endsGrapple: true, momentumRequired: 10 },
-			{ moveId: 'crossface', name: 'Crossface', staminaCost: 7, endsGrapple: false, momentumRequired: 0 }
+			{ moveId: 'side_slam', name: 'Side Slam', staminaCost: 8, endsGrapple: true, momentumRequired: 0 },
+			{ moveId: 'uranage', name: 'Uranage Slam', staminaCost: 8, endsGrapple: true, momentumRequired: 10 },
+			{ moveId: 'facelock_neckbreaker', name: 'Facelock Neckbreaker', staminaCost: 9, endsGrapple: true, momentumRequired: 10 },
+			{ moveId: 'crossface', name: 'Crossface', staminaCost: 7, endsGrapple: false, momentumRequired: 0 },
+			{ moveId: 'kimura_lock', name: 'Kimura Lock', staminaCost: 7, endsGrapple: false, momentumRequired: 10 },
+			{ moveId: 'camel_clutch', name: 'Camel Clutch', staminaCost: 8, endsGrapple: false, momentumRequired: 10 }
 		],
 		transitions: [
 			{
@@ -172,7 +190,11 @@ const GRAPPLE_CHAINS: Record<GrapplePosition, GrapplePositionData> = {
 			{ moveId: 'chop', name: 'Corner Chop', staminaCost: 4, endsGrapple: false, momentumRequired: 0 },
 			{ moveId: 'forearm_smash', name: 'Corner Forearm', staminaCost: 5, endsGrapple: false, momentumRequired: 0 },
 			{ moveId: 'clothesline', name: 'Corner Clothesline', staminaCost: 6, endsGrapple: true, momentumRequired: 0 },
-			{ moveId: 'superkick', name: 'Corner Superkick', staminaCost: 10, endsGrapple: true, momentumRequired: 20 }
+			{ moveId: 'superkick', name: 'Corner Superkick', staminaCost: 10, endsGrapple: true, momentumRequired: 20 },
+			{ moveId: 'spear', name: 'Corner Spear', staminaCost: 12, endsGrapple: true, momentumRequired: 25 },
+			{ moveId: 'running_knee', name: 'Corner Running Knee', staminaCost: 10, endsGrapple: true, momentumRequired: 20 },
+			{ moveId: 'spinebuster', name: 'Corner Spinebuster', staminaCost: 10, endsGrapple: true, momentumRequired: 15 },
+			{ moveId: 'chokeslam', name: 'Corner Chokeslam', staminaCost: 12, endsGrapple: true, momentumRequired: 25 }
 		],
 		transitions: [
 			{
@@ -199,7 +221,14 @@ const GRAPPLE_CHAINS: Record<GrapplePosition, GrapplePositionData> = {
 			{ moveId: 'missile_dropkick', name: 'Missile Dropkick', staminaCost: 14, endsGrapple: true, momentumRequired: 10 },
 			{ moveId: 'moonsault', name: 'Moonsault', staminaCost: 16, endsGrapple: true, momentumRequired: 20 },
 			{ moveId: 'frog_splash', name: 'Frog Splash', staminaCost: 14, endsGrapple: true, momentumRequired: 15 },
-			{ moveId: 'elbow_drop_top', name: 'Top Rope Elbow Drop', staminaCost: 10, endsGrapple: true, momentumRequired: 0 }
+			{ moveId: 'elbow_drop_top', name: 'Top Rope Elbow Drop', staminaCost: 10, endsGrapple: true, momentumRequired: 0 },
+			{ moveId: 'swanton_bomb', name: 'Swanton Bomb', staminaCost: 16, endsGrapple: true, momentumRequired: 20 },
+			{ moveId: 'senton_630', name: '630 Senton', staminaCost: 20, endsGrapple: true, momentumRequired: 40 },
+			{ moveId: 'diving_foot_stomp', name: 'Diving Double Foot Stomp', staminaCost: 14, endsGrapple: true, momentumRequired: 15 },
+			{ moveId: 'shooting_star_press', name: 'Shooting Star Press', staminaCost: 18, endsGrapple: true, momentumRequired: 30 },
+			{ moveId: 'phoenix_splash_aerial', name: 'Phoenix Splash', staminaCost: 18, endsGrapple: true, momentumRequired: 30 },
+			{ moveId: 'diving_leg_drop', name: 'Diving Leg Drop', staminaCost: 12, endsGrapple: true, momentumRequired: 10 },
+			{ moveId: 'senton_bomb', name: 'Senton Bomb', staminaCost: 12, endsGrapple: true, momentumRequired: 10 }
 		],
 		transitions: [
 			{

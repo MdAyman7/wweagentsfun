@@ -285,6 +285,284 @@ const MOVE_POSES: Record<string, MovePoseConfig> = {
 		transitionMode: null,
 		upperBodyRatio: 0.1
 	},
+
+	// ── NEW STRIKES ──
+	superman_punch: {
+		leadArm: 'right',
+		windup: { rightArmX: 0.5, bodyY: -0.15, rightLegX: -0.6, bodyX: -0.1 },
+		active: { rightArmX: -1.4, bodyY: 0.15, rightLegX: 0.3, bodyRotY: 0.2 },
+		useIK: false,
+		rootMotion: { windupX: -0.05, activeX: 0.2, activeY: 0.15 },
+		transitionMode: null,
+		upperBodyRatio: 0.5
+	},
+	spear: {
+		leadArm: 'both',
+		windup: { bodyX: -0.3, leftArmX: -0.3, rightArmX: -0.3 },
+		active: { bodyX: -0.6, leftArmZ: Math.PI * 0.3, rightArmZ: -Math.PI * 0.3, bodyY: -0.1 },
+		useIK: false,
+		rootMotion: { windupX: 0, activeX: 0.3, activeY: -0.1 },
+		transitionMode: 'fast',
+		upperBodyRatio: 0.3
+	},
+	bicycle_kick: {
+		leadArm: 'both',
+		windup: { rightLegX: -0.7, rightCalfX: 0.5, bodyX: -0.2, bodyRotY: -0.2 },
+		active: { rightLegX: 1.3, rightCalfX: 0, bodyX: 0.15, bodyRotY: 0.15 },
+		useIK: false,
+		rootMotion: { windupX: -0.05, activeX: 0.2, activeY: 0.08 },
+		transitionMode: null,
+		upperBodyRatio: 0.2
+	},
+	running_knee: {
+		leadArm: 'both',
+		windup: { rightLegX: -0.6, rightCalfX: 0.8, bodyX: -0.15 },
+		active: { rightLegX: 0.5, rightCalfX: -0.3, bodyX: -0.2, bodyY: 0.05 },
+		useIK: false,
+		rootMotion: { windupX: 0, activeX: 0.2, activeY: 0.05 },
+		transitionMode: 'fast',
+		upperBodyRatio: 0.3
+	},
+	discus_clothesline: {
+		leadArm: 'right',
+		windup: { rightArmZ: -Math.PI * 0.7, bodyRotY: -0.5, bodyX: -0.1 },
+		active: { rightArmZ: -Math.PI * 0.1, rightArmX: -0.6, bodyRotY: 0.4, bodyX: -0.15 },
+		useIK: false,
+		rootMotion: { windupX: -0.05, activeX: 0.25, activeY: 0 },
+		transitionMode: null,
+		upperBodyRatio: 0.6
+	},
+	big_boot: {
+		leadArm: 'both',
+		windup: { rightLegX: -0.5, rightCalfX: 0.3, bodyX: -0.1 },
+		active: { rightLegX: 1.0, rightCalfX: 0, bodyX: 0.08 },
+		useIK: false,
+		rootMotion: { windupX: -0.03, activeX: 0.12, activeY: 0 },
+		transitionMode: null,
+		upperBodyRatio: 0.2
+	},
+	spinning_heel_kick: {
+		leadArm: 'both',
+		windup: { rightLegX: -0.6, rightCalfX: 0.4, bodyRotY: -0.4, bodyX: -0.15 },
+		active: { rightLegX: 0.8, rightLegZ: 0.4, rightCalfX: 0, bodyRotY: 0.5, bodyX: 0.1 },
+		useIK: false,
+		rootMotion: { windupX: -0.05, activeX: 0.15, activeY: 0.03 },
+		transitionMode: null,
+		upperBodyRatio: 0.2
+	},
+	shoot_kick: {
+		leadArm: 'both',
+		windup: { rightLegX: -0.4, rightCalfX: 0.3 },
+		active: { rightLegX: 0.5, rightCalfX: 0, bodyX: 0.05 },
+		useIK: false,
+		rootMotion: { windupX: -0.02, activeX: 0.06, activeY: 0 },
+		transitionMode: null,
+		upperBodyRatio: 0.3
+	},
+	running_lariat: {
+		leadArm: 'right',
+		windup: { rightArmZ: -Math.PI * 0.6, rightArmX: 0.1, bodyX: -0.2 },
+		active: { rightArmZ: -Math.PI * 0.1, rightArmX: -0.5, bodyX: -0.15, bodyRotY: 0.25 },
+		useIK: false,
+		rootMotion: { windupX: 0, activeX: 0.25, activeY: 0 },
+		transitionMode: null,
+		upperBodyRatio: 0.5
+	},
+
+	// ── NEW GRAPPLES ──
+	chokeslam: {
+		leadArm: 'right',
+		windup: { rightArmX: -0.8, bodyY: 0.05, bodyX: -0.1 },
+		active: { rightArmZ: -Math.PI * 0.3, bodyX: 0.3, bodyY: 0.2 },
+		useIK: true,
+		rootMotion: { windupX: 0.05, activeX: -0.05, activeY: 0.2 },
+		transitionMode: null,
+		upperBodyRatio: 0.4
+	},
+	samoan_drop: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.5, rightArmX: -0.5, bodyX: -0.15 },
+		active: { bodyX: 0.5, bodyY: -0.15, leftArmZ: Math.PI * 0.3, rightArmZ: -Math.PI * 0.3 },
+		useIK: true,
+		rootMotion: { windupX: 0.08, activeX: -0.1, activeY: -0.1 },
+		transitionMode: null,
+		upperBodyRatio: 0.25
+	},
+	tombstone_piledriver: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.7, rightArmX: -0.7, bodyX: -0.35, bodyY: -0.15 },
+		active: { bodyX: 0.25, bodyY: -0.35, leftArmX: -0.5, rightArmX: -0.5 },
+		useIK: true,
+		rootMotion: { windupX: 0.08, activeX: 0, activeY: -0.25 },
+		transitionMode: null,
+		upperBodyRatio: 0.2
+	},
+	spinebuster: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.5, rightArmX: -0.5, bodyX: -0.2 },
+		active: { leftArmZ: Math.PI * 0.2, rightArmZ: -Math.PI * 0.2, bodyX: 0.4, bodyY: 0.1 },
+		useIK: true,
+		rootMotion: { windupX: 0.1, activeX: -0.1, activeY: 0.1 },
+		transitionMode: 'fast',
+		upperBodyRatio: 0.3
+	},
+	cutter: {
+		leadArm: 'right',
+		windup: { rightArmX: -0.6, bodyRotY: -0.15 },
+		active: { rightArmX: -0.3, bodyX: 0.4, bodyY: -0.15, bodyRotY: 0.3 },
+		useIK: true,
+		rootMotion: { windupX: 0.05, activeX: -0.08, activeY: -0.1 },
+		transitionMode: 'fast',
+		upperBodyRatio: 0.35
+	},
+	fireman_carry_slam: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.5, rightArmX: -0.5, bodyX: -0.15, bodyY: 0.05 },
+		active: { leftArmZ: Math.PI * 0.4, rightArmZ: -Math.PI * 0.4, bodyX: 0.3, bodyY: 0.2 },
+		useIK: true,
+		rootMotion: { windupX: 0.1, activeX: -0.08, activeY: 0.15 },
+		transitionMode: null,
+		upperBodyRatio: 0.2
+	},
+	double_underhook_facebuster: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.6, rightArmX: -0.6, bodyX: -0.2 },
+		active: { bodyX: 0.3, bodyY: -0.2, leftArmX: -0.4, rightArmX: -0.4 },
+		useIK: true,
+		rootMotion: { windupX: 0.06, activeX: -0.05, activeY: -0.15 },
+		transitionMode: null,
+		upperBodyRatio: 0.25
+	},
+	spinning_fireman_carry: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.5, rightArmX: -0.5, bodyX: -0.15, bodyRotY: -0.2 },
+		active: { leftArmZ: Math.PI * 0.4, rightArmZ: -Math.PI * 0.4, bodyX: 0.35, bodyY: 0.2, bodyRotY: 0.5 },
+		useIK: true,
+		rootMotion: { windupX: 0.08, activeX: -0.1, activeY: 0.2 },
+		transitionMode: null,
+		upperBodyRatio: 0.2
+	},
+	uranage: {
+		leadArm: 'right',
+		windup: { rightArmX: -0.7, bodyRotY: -0.15, bodyX: -0.1 },
+		active: { rightArmX: -0.4, bodyX: 0.35, bodyRotY: 0.2, bodyY: 0.1 },
+		useIK: true,
+		rootMotion: { windupX: 0.06, activeX: -0.08, activeY: 0.1 },
+		transitionMode: null,
+		upperBodyRatio: 0.3
+	},
+	jawbreaker: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.6, rightArmX: -0.6, bodyX: -0.1, bodyY: -0.05 },
+		active: { bodyX: 0.2, bodyY: -0.15, leftArmX: -0.3, rightArmX: -0.3 },
+		useIK: true,
+		rootMotion: { windupX: 0.05, activeX: 0, activeY: -0.1 },
+		transitionMode: 'fast',
+		upperBodyRatio: 0.4
+	},
+
+	// ── NEW AERIALS ──
+	swanton_bomb: {
+		leadArm: 'both',
+		windup: { bodyX: 0.15, bodyY: -0.1 },
+		active: { bodyX: -0.4, bodyY: 0.35, leftArmZ: Math.PI * 0.6, rightArmZ: -Math.PI * 0.6 },
+		useIK: false,
+		rootMotion: { windupX: -0.06, activeX: 0.12, activeY: 0.35 },
+		transitionMode: null,
+		upperBodyRatio: 0.1
+	},
+	senton_630: {
+		leadArm: 'both',
+		windup: { bodyX: 0.2, bodyY: -0.15 },
+		active: { bodyX: -0.6, bodyY: 0.4, leftArmZ: Math.PI * 0.5, rightArmZ: -Math.PI * 0.5 },
+		useIK: false,
+		rootMotion: { windupX: -0.08, activeX: 0.15, activeY: 0.4 },
+		transitionMode: null,
+		upperBodyRatio: 0.1
+	},
+	diving_foot_stomp: {
+		leadArm: 'both',
+		windup: { bodyY: -0.1, leftLegX: -0.2, rightLegX: -0.2 },
+		active: { leftLegX: 0.3, rightLegX: 0.3, bodyY: 0.2, bodyX: -0.2 },
+		useIK: false,
+		rootMotion: { windupX: -0.03, activeX: 0.1, activeY: 0.25 },
+		transitionMode: 'fast',
+		upperBodyRatio: 0.15
+	},
+	shooting_star_press: {
+		leadArm: 'both',
+		windup: { bodyX: -0.2, bodyY: -0.1 },
+		active: { bodyX: -0.5, bodyY: 0.35, leftArmZ: Math.PI * 0.5, rightArmZ: -Math.PI * 0.5 },
+		useIK: false,
+		rootMotion: { windupX: -0.08, activeX: 0.15, activeY: 0.4 },
+		transitionMode: null,
+		upperBodyRatio: 0.1
+	},
+	tiger_feint_kick: {
+		leadArm: 'both',
+		windup: { bodyRotY: -0.3, rightLegX: -0.5, leftLegX: -0.3, bodyX: -0.1 },
+		active: { bodyRotY: 0.5, rightLegX: 0.8, leftLegX: 0.5, bodyY: 0.1 },
+		useIK: false,
+		rootMotion: { windupX: -0.1, activeX: 0.2, activeY: 0.1 },
+		transitionMode: null,
+		upperBodyRatio: 0.15
+	},
+	springboard_clothesline: {
+		leadArm: 'right',
+		windup: { rightArmZ: -Math.PI * 0.5, bodyY: -0.08, bodyX: -0.1 },
+		active: { rightArmZ: -Math.PI * 0.1, rightArmX: -0.5, bodyY: 0.15, bodyX: -0.15 },
+		useIK: false,
+		rootMotion: { windupX: -0.05, activeX: 0.2, activeY: 0.15 },
+		transitionMode: null,
+		upperBodyRatio: 0.5
+	},
+	senton_bomb: {
+		leadArm: 'both',
+		windup: { bodyX: 0.1, bodyY: -0.08 },
+		active: { bodyX: -0.35, bodyY: 0.3, leftArmZ: Math.PI * 0.4, rightArmZ: -Math.PI * 0.4 },
+		useIK: false,
+		rootMotion: { windupX: -0.05, activeX: 0.1, activeY: 0.3 },
+		transitionMode: null,
+		upperBodyRatio: 0.1
+	},
+
+	// ── NEW SUBMISSIONS ──
+	ankle_lock: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.3, rightArmX: -0.3, bodyX: -0.15 },
+		active: { leftArmX: -0.5, rightArmX: -0.5, bodyX: -0.25, bodyRotY: 0.1 },
+		useIK: true,
+		rootMotion: { windupX: 0.05, activeX: 0, activeY: 0 },
+		transitionMode: null,
+		upperBodyRatio: 0.4
+	},
+	boston_crab: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.4, rightArmX: -0.4, bodyX: -0.1 },
+		active: { leftArmX: -0.5, rightArmX: -0.5, bodyX: -0.3, bodyRotY: 0.15 },
+		useIK: true,
+		rootMotion: { windupX: 0.05, activeX: 0, activeY: 0 },
+		transitionMode: null,
+		upperBodyRatio: 0.35
+	},
+	walls_of_jericho: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.4, rightArmX: -0.4, bodyX: -0.15 },
+		active: { leftArmX: -0.6, rightArmX: -0.6, bodyX: -0.3, bodyRotY: 0.2 },
+		useIK: true,
+		rootMotion: { windupX: 0.06, activeX: 0, activeY: 0 },
+		transitionMode: null,
+		upperBodyRatio: 0.35
+	},
+	bank_statement: {
+		leadArm: 'both',
+		windup: { leftArmX: -0.5, rightArmX: -0.5, bodyX: -0.1 },
+		active: { leftArmX: -0.7, rightArmX: -0.7, bodyX: -0.2, bodyY: 0.1, bodyRotY: 0.2 },
+		useIK: true,
+		rootMotion: { windupX: 0.05, activeX: 0, activeY: 0.05 },
+		transitionMode: null,
+		upperBodyRatio: 0.35
+	},
 };
 
 /** Category-based fallback configs for unknown moves. */
