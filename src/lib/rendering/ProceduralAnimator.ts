@@ -276,6 +276,9 @@ export class ProceduralAnimator {
 	/** Velocity magnitude for walk cycle (0-1). */
 	private _velocity = 0;
 
+	/** Normalized stamina (1 = fresh, 0 = exhausted) for fatigue posture. */
+	private _stamina = 1;
+
 	/** Knockback tilt — decays over time. */
 	private _knockbackTiltZ = 0;
 	private _knockbackTiltDecay = 6.0;
@@ -308,6 +311,7 @@ export class ProceduralAnimator {
 	setCommand(cmd: AnimationCommand): void {
 		this._command = cmd;
 		this._velocity = clamp(Math.abs(cmd.velocity), 0, 1);
+		this._stamina = clamp(cmd.stamina ?? 1, 0, 1);
 
 		// Map phase to AnimStateId and set state
 		const stateMap: Record<string, AnimStateId> = {
@@ -380,6 +384,7 @@ export class ProceduralAnimator {
 		this.applyTauntPump(proceduralPose);
 		this.applyAttackDynamic(proceduralPose);
 		this.applyGettingUpStruggle(proceduralPose);
+		this.applyFatigue(proceduralPose);
 		this.applyKnockbackTilt(dt, proceduralPose);
 		this._layerStack.setPose(3, proceduralPose);
 		this._layerStack.setWeight(3, 1.0);
@@ -494,6 +499,44 @@ export class ProceduralAnimator {
 		pose.bodyX += Math.sin(phase) * 0.08;
 		pose.bodyZ += Math.cos(phase * 0.7) * 0.05;
 		pose.leftArmX += Math.sin(phase) * 0.1;
+	}
+
+	/**
+	 * Fatigue overlay — when stamina is low the wrestler sags: heavier
+	 * breathing, dropped guard, hunched shoulders, drooping head. Only applied
+	 * in "upright" states so it never corrupts attack/grounded poses.
+	 */
+	private applyFatigue(pose: ProceduralPose): void {
+		const tired = 1 - this._stamina;
+		if (tired < 0.2) return;
+		if (
+			this._state === 'attacking' ||
+			this._state === 'grounded' ||
+			this._state === 'getting_up'
+		) {
+			return;
+		}
+		const t = (tired - 0.2) / 0.8; // 0 at 80% stamina → 1 when exhausted
+
+		// Heavy, exaggerated breathing — chest heaves
+		const heave = Math.sin(this._time * (2.2 + t * 2.5) * Math.PI * 2);
+		pose.bodyY += heave * 0.025 * t;
+		pose.headX += Math.max(0, heave) * 0.06 * t;
+
+		// Hunch forward and sag down
+		pose.bodyX += 0.22 * t;
+		pose.bodyY -= 0.05 * t;
+		pose.headX += 0.16 * t; // head droops
+
+		// Guard drops — arms fall from the chin
+		pose.leftArmX += 0.55 * t;
+		pose.rightArmX += 0.55 * t;
+		pose.leftForearmX += 0.45 * t;
+		pose.rightForearmX += 0.45 * t;
+
+		// Shoulders slump outward
+		pose.leftArmZ += 0.12 * t;
+		pose.rightArmZ -= 0.12 * t;
 	}
 
 	private applyKnockbackTilt(dt: number, pose: ProceduralPose): void {

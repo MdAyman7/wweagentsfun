@@ -14,6 +14,9 @@
 	import { EffectsRenderer } from '$lib/rendering/EffectsRenderer';
 	import { ArenaRenderer } from '$lib/rendering/ArenaRenderer';
 	import { RefereeRenderer } from '$lib/rendering/RefereeRenderer';
+	import { CrowdRenderer } from '$lib/rendering/CrowdRenderer';
+	import { SoundEngine } from '$lib/audio/SoundEngine';
+	import { Commentator, type CommentaryLine } from '$lib/match/commentary/Commentator';
 	import { lerp } from '$lib/utils/math';
 	import type { Vec3 } from '$lib/utils/types';
 	import type { AnimationCommand } from '$lib/rendering/AnimationCommand';
@@ -36,6 +39,8 @@
 		elapsed: 0,
 		wrestlers: [],
 		recentEvents: [],
+		commentaryLines: [],
+		muted: false,
 		winner: null,
 		winMethod: null,
 		matchRating: 0
@@ -50,33 +55,74 @@
 	let refereeRenderer: RefereeRenderer | null = null;
 	let matchLoop: MatchLoop | null = null;
 	let director: MatchDirector | null = null;
+	let crowdRenderer: CrowdRenderer | null = null;
+	let soundEngine: SoundEngine | null = null;
+	let commentator: Commentator | null = null;
 	let rafId: number | null = null;
+
+	/**
+	 * Commentary line buffer. Held as a plain array (not $state) — the codebase
+	 * has a svelte-check bug with multiple $state runes, so it is surfaced to the
+	 * UI via the single `state` object during syncMatchToUI.
+	 */
+	let commentaryBuffer: CommentaryLine[] = [];
+	/** Cursor into matchLoop.state.log — entries before this have been narrated. */
+	let lastLogLen = 0;
+	/** Short-lived crowd excitement boost from recent dramatic beats (decays). */
+	let energyBump = 0;
+	/** Audio mute toggle (mirrored into `state.muted` for reactive UI). */
+	let muted = false;
 	let lastTimestamp = 0;
 	let accumulator = 0;
 	const TICK_MS = 1000 / 60;
-	/** Post-match cinematic sequence timer (ms). When match ends, counts up to POST_MATCH_DELAY before showing popup. */
-	let postMatchTimer = 0;
-	let postMatchActive = false;
-	const POST_MATCH_DELAY = 4000; // 4 seconds of post-match cinematics before popup
 	/** Previous X positions per agent for velocity calculation. */
 	let prevPositionX: [number, number] = [0, 0];
 	/** Pending knockback per agent (set by hit events, consumed by AnimationCommand). */
 	let pendingKnockback: [{ direction: number; intensity: number } | null, { direction: number; intensity: number } | null] = [null, null];
 
 	/**
-	 * Visual ring circling angle. When fighters are idle/moving,
-	 * they slowly orbit around the ring center, creating natural 2D movement.
-	 * This is purely visual — simulation remains 1D on X-axis.
+	 * Whether user has free camera control enabled (default: on).
+	 * Not wrapped in $state due to svelte-check bug with multiple $state calls.
+	 */
+	let freeCam = true;
+	/** Whether the camera help tooltip is visible */
+	let showGuide = false;
+
+	/**
+	 * Visual ring circling angle.
 	 */
 	let circleAngle = 0;
 	let circleAngleTarget = 0;
-	/** Fighters sway on Z-axis for more natural positioning */
 	let circleSway = 0;
 
 	// Atmosphere lerp targets for smooth transitions
 	let atmosphereTarget = { exposure: 1.0, spotlightIntensity: 1.0, titantronIntensity: 0.4, fogDensity: 0.025 };
 	let atmosphereCurrent = { ...atmosphereTarget };
 	let atmosphereTransitionSpeed = 0;
+
+	// ─── Ceremony Phase System ──────────────────────────────────────
+	type CeremonyPhase = 'intro_p1' | 'intro_p2' | 'countdown' | 'fight' | 'post_celebration' | 'post_result';
+
+	let ceremonyPhase: CeremonyPhase = 'intro_p1';
+	let phaseTimer = 0;
+
+	const INTRO_DURATION = 7000;     // 7 seconds per wrestler intro
+	const COUNTDOWN_DURATION = 4000; // 3-2-1-FIGHT
+	const POST_CELEBRATION_DELAY = 8000; // 8 seconds of post-match celebration
+
+	/** Countdown number to display (3, 2, 1, 0=FIGHT) */
+	let countdownNumber = 3;
+	/** Which wrestler intro is currently showing (0 or 1) */
+	let introWrestlerIdx = 0;
+	/** Winner celebration pose cycling timer */
+	let celebrationPoseTimer = 0;
+	let celebrationPoseIndex = 0;
+	const CELEBRATION_POSES = ['taunting', 'stance', 'taunting', 'moving'] as const;
+
+	// Wrestler data for intro cards
+	const w1Def = lookupWrestler(wrestler1Id);
+	const w2Def = lookupWrestler(wrestler2Id);
+	const introDefs = [w1Def, w2Def];
 
 	// ─── Personality mapping from roster data ────────────────────────
 	const PERSONALITY_MAP: Record<string, AgentPersonality> = {
@@ -98,24 +144,53 @@
 		return 'medium';
 	}
 
+	function toggleCameraMode() {
+		freeCam = !freeCam;
+		cameraRig?.setMode(freeCam ? 'free' : 'auto');
+	}
+
+	function toggleGuide() {
+		showGuide = !showGuide;
+	}
+
+	function onKeyDown(event: KeyboardEvent) {
+		soundEngine?.resume(); // unlock audio on first user gesture if still suspended
+		if (event.key === 'c' || event.key === 'C') {
+			toggleCameraMode();
+		}
+		if (event.key === 'm' || event.key === 'M') {
+			toggleMute();
+		}
+	}
+
 	function cleanupMatch() {
+		window.removeEventListener('keydown', onKeyDown);
 		if (rafId !== null) cancelAnimationFrame(rafId);
 		rafId = null;
+		cameraRig?.dispose();
 		refereeRenderer?.dispose();
 		effectsRenderer?.dispose();
 		director?.dispose();
+		crowdRenderer?.dispose();
+		soundEngine?.dispose();
 		wrestlerRenderer?.dispose();
 		arenaRenderer?.dispose();
 		ringRenderer?.dispose();
 		sceneManager?.dispose();
 		matchLoop = null;
+		crowdRenderer = null;
+		soundEngine = null;
+		commentator = null;
 	}
 
 	function onCanvasReady(canvas: HTMLCanvasElement) {
 		// 1. THREE.js Scene + Camera
 		sceneManager = new SceneManager(canvas);
 		cameraRig = new CameraRig();
-		cameraRig.setPreset('hard_cam');
+		cameraRig.initControls(canvas);
+		// Start with auto camera for intro cinematics
+		cameraRig.setMode('auto');
+		freeCam = false;
 
 		// 2. Ring
 		ringRenderer = new RingRenderer(sceneManager.scene);
@@ -123,13 +198,13 @@
 		// 3. Arena
 		arenaRenderer = new ArenaRenderer(sceneManager.scene);
 
+		// 3b. Crowd (instanced spectator tiers)
+		crowdRenderer = new CrowdRenderer(sceneManager.scene);
+
 		// 4. Wrestler meshes
 		wrestlerRenderer = new WrestlerRenderer(sceneManager.scene);
 
-		// 5. Create match engine
-		const w1Def = lookupWrestler(wrestler1Id);
-		const w2Def = lookupWrestler(wrestler2Id);
-
+		// 5. Create match engine (but don't step it yet — wait for countdown to finish)
 		const w1Input: WrestlerInput = {
 			id: w1Def.id,
 			name: w1Def.name,
@@ -168,6 +243,15 @@
 		// 7. Match Director
 		director = new MatchDirector({ seed });
 
+		// 7b. Audio + commentary
+		soundEngine = new SoundEngine();
+		soundEngine.setMuted(muted);
+		soundEngine.resume();
+		commentator = new Commentator(seed);
+		commentaryBuffer = [];
+		lastLogLen = 0;
+		energyBump = 0;
+
 		// 8. Create wrestler bot meshes
 		const defs = [w1Def, w2Def];
 		for (let i = 0; i < defs.length; i++) {
@@ -181,6 +265,7 @@
 			});
 		}
 
+		// Position wrestlers in their corners for intro
 		const ringHeight = 0.3;
 		wrestlerRenderer.updateTransform(0, [-2, ringHeight, 0], [0, 0, 0, 1]);
 		wrestlerRenderer.updateTransform(1, [2, ringHeight, 0], [0, 1, 0, 0]);
@@ -189,18 +274,149 @@
 		refereeRenderer = new RefereeRenderer(sceneManager.scene);
 		refereeRenderer.updatePosition([[-2, ringHeight, 0], [2, ringHeight, 0]]);
 
-		// 10. Initial render
+		// 10. Start intro phase — camera focuses on wrestler 1
+		ceremonyPhase = 'intro_p1';
+		introWrestlerIdx = 0;
+		phaseTimer = 0;
+		cameraRig.setPreset('closeup', [-2, ringHeight, 0]);
+		cameraRig.setTransitionSpeed(2.0);
+
+		// 11. Initial render
 		sceneManager.render(cameraRig.camera);
 
 		lastTimestamp = performance.now();
 		rafId = requestAnimationFrame(frame);
+
+		window.addEventListener('keydown', onKeyDown);
 	}
 
+	// ─── Main Frame Loop ────────────────────────────────────────────
+
 	function frame(timestamp: number) {
-		if (!matchLoop || !sceneManager || !cameraRig || !wrestlerRenderer) return;
+		if (!sceneManager || !cameraRig || !wrestlerRenderer) return;
 
 		const rawDelta = Math.min(timestamp - lastTimestamp, 200);
 		lastTimestamp = timestamp;
+		phaseTimer += rawDelta;
+
+		const dtSeconds = rawDelta / 1000;
+
+		switch (ceremonyPhase) {
+			case 'intro_p1':
+			case 'intro_p2':
+				frameIntro(dtSeconds);
+				break;
+			case 'countdown':
+				frameCountdown(dtSeconds);
+				break;
+			case 'fight':
+				frameFight(rawDelta);
+				break;
+			case 'post_celebration':
+				framePostCelebration(rawDelta, dtSeconds);
+				break;
+			case 'post_result':
+				// Stop the animation loop — result popup is showing
+				syncMatchToUI();
+				return;
+		}
+
+		// Common render path (all phases except post_result)
+		updateAmbience(dtSeconds);
+		wrestlerRenderer!.update(dtSeconds);
+		if (refereeRenderer) refereeRenderer.update(dtSeconds);
+		cameraRig!.update(1 / 60);
+		sceneManager!.render(cameraRig!.camera);
+		rafId = requestAnimationFrame(frame);
+	}
+
+	// ─── Intro Phase Logic ──────────────────────────────────────────
+
+	function frameIntro(dt: number) {
+		if (!wrestlerRenderer || !cameraRig) return;
+		const ringHeight = 0.3;
+		const idx = ceremonyPhase === 'intro_p1' ? 0 : 1;
+		introWrestlerIdx = idx;
+
+		// Featured wrestler does a taunt, the other stands idle
+		wrestlerRenderer.setAnimation(idx, 'taunting');
+		wrestlerRenderer.setAnimation(1 - idx, 'stance');
+
+		// Camera slowly orbits the featured wrestler
+		const focusX = idx === 0 ? -2 : 2;
+		const orbitAngle = (phaseTimer / INTRO_DURATION) * Math.PI * 0.4 - Math.PI * 0.2;
+		const camDist = 2.0;
+		const camX = focusX + Math.sin(orbitAngle) * camDist;
+		const camZ = Math.cos(orbitAngle) * camDist;
+		cameraRig.setPreset('closeup', [focusX, ringHeight, 0]);
+
+		// Transition to next phase
+		if (phaseTimer >= INTRO_DURATION) {
+			phaseTimer = 0;
+			if (ceremonyPhase === 'intro_p1') {
+				ceremonyPhase = 'intro_p2';
+				introWrestlerIdx = 1;
+				cameraRig.setPreset('closeup', [2, ringHeight, 0]);
+				cameraRig.setTransitionSpeed(3.0);
+			} else {
+				// Move to countdown
+				ceremonyPhase = 'countdown';
+				countdownNumber = 3;
+				cameraRig.setPreset('hard_cam');
+				cameraRig.setTransitionSpeed(4.0);
+			}
+		}
+	}
+
+	// ─── Countdown Phase Logic ──────────────────────────────────────
+
+	function frameCountdown(dt: number) {
+		if (!wrestlerRenderer) return;
+
+		// Both wrestlers in ready stance
+		wrestlerRenderer.setAnimation(0, 'stance');
+		wrestlerRenderer.setAnimation(1, 'stance');
+
+		// Update countdown number: 3...2...1...FIGHT!
+		const elapsed = phaseTimer;
+		if (elapsed < 1000) countdownNumber = 3;
+		else if (elapsed < 2000) countdownNumber = 2;
+		else if (elapsed < 3000) countdownNumber = 1;
+		else countdownNumber = 0; // FIGHT!
+
+		// Camera shake on each countdown beat
+		if (cameraRig) {
+			const beat1 = elapsed >= 1000 && elapsed < 1050;
+			const beat2 = elapsed >= 2000 && elapsed < 2050;
+			const beat3 = elapsed >= 3000 && elapsed < 3050;
+			if (beat1 || beat2 || beat3) cameraRig.shake(0.03);
+		}
+
+		// Transition to fight
+		if (phaseTimer >= COUNTDOWN_DURATION) {
+			phaseTimer = 0;
+			ceremonyPhase = 'fight';
+			// Switch to user-controlled free camera
+			freeCam = true;
+			cameraRig?.setMode('free');
+
+			// Ring the bell — the crowd erupts.
+			soundEngine?.resume();
+			soundEngine?.bell(3);
+			soundEngine?.crowdPop(1.2);
+			crowdRenderer?.popReaction(1.2);
+			energyBump = Math.min(1, energyBump + 0.7);
+
+			// Set match state to live
+			state = { ...state, phase: 'live' };
+			matchState.set(state);
+		}
+	}
+
+	// ─── Fight Phase Logic (existing match simulation) ──────────────
+
+	function frameFight(rawDelta: number) {
+		if (!matchLoop || !cameraRig || !wrestlerRenderer) return;
 
 		const dilation = director?.timeDilation ?? 1.0;
 		accumulator += rawDelta * dilation;
@@ -217,50 +433,10 @@
 		}
 
 		// Process hit impact events for VFX + knockback tilt
-		if (matchLoop) {
-			const hitEvents = matchLoop.drainHitEvents();
-			const ms = matchLoop.state;
-			for (const hit of hitEvents) {
-				if (effectsRenderer) {
-					const impactPos: Vec3 = [hit.positionX, 0.65, 0];
-					if (hit.critical) {
-						effectsRenderer.spawnEffect('impact', impactPos, 1.2);
-						effectsRenderer.spawnEffect('sparks', impactPos, 1.0);
-						effectsRenderer.spawnEffect('flash', impactPos, 0.8);
-						effectsRenderer.spawnEffect('dust', impactPos, 0.6);
-					} else if (hit.reversed) {
-						effectsRenderer.spawnEffect('sparks', impactPos, 0.8);
-						effectsRenderer.spawnEffect('impact', impactPos, 0.5);
-					} else if (hit.blocked) {
-						effectsRenderer.spawnEffect('sparks', impactPos, 0.3);
-					} else {
-						effectsRenderer.spawnEffect('impact', impactPos, hit.intensity);
-						effectsRenderer.spawnEffect('dust', impactPos, hit.intensity * 0.4);
-					}
-					// Blood effect when fighter health is below 30%
-					const defenderAgent = ms.agents.find((a) => a.id === hit.defenderId);
-					if (defenderAgent && !hit.blocked && defenderAgent.health / defenderAgent.maxHealth < 0.3) {
-						effectsRenderer.spawnEffect('blood', impactPos, hit.intensity);
-					}
-				}
-				// Camera shake on big hits — stronger
-				if (cameraRig && !hit.blocked) {
-					const shakeIntensity = hit.critical ? 0.14 : hit.intensity * 0.07;
-					cameraRig.shake(shakeIntensity);
-				}
-				// Visual knockback tilt on defender
-				if (wrestlerRenderer && !hit.blocked) {
-					const defenderIdx = ms.agents.findIndex((a) => a.id === hit.defenderId);
-					const attackerIdx = ms.agents.findIndex((a) => a.id === hit.attackerId);
-					if (defenderIdx >= 0 && attackerIdx >= 0) {
-						const knockDir = ms.agents[defenderIdx].positionX > ms.agents[attackerIdx].positionX ? 1 : -1;
-						wrestlerRenderer.applyKnockback(defenderIdx, knockDir, hit.intensity);
-						// Store knockback for AnimationCommand
-						pendingKnockback[defenderIdx as 0 | 1] = { direction: knockDir, intensity: hit.intensity };
-					}
-				}
-			}
-		}
+		processHitEvents();
+
+		// Narrate new log events (commentary + crowd/audio reactions)
+		narrateNewEvents();
 
 		updateAtmosphere();
 		if (effectsRenderer) effectsRenderer.update(rawDelta / 1000 * dilation);
@@ -268,19 +444,18 @@
 		syncMatchToUI();
 		syncMatchToScene();
 
-		const dtSeconds = rawDelta / 1000;
-		wrestlerRenderer.update(dtSeconds);
-		if (refereeRenderer) refereeRenderer.update(dtSeconds);
+		// Check if match ended → transition to post celebration
+		if (!matchLoop.state.running) {
+			ceremonyPhase = 'post_celebration';
+			phaseTimer = 0;
+			celebrationPoseTimer = 0;
+			celebrationPoseIndex = 0;
 
-		cameraRig.update(1 / 60);
-		sceneManager.render(cameraRig.camera);
-
-		if (matchLoop.state.running) {
-			rafId = requestAnimationFrame(frame);
-		} else if (!postMatchActive) {
-			// Match just ended — start post-match cinematic sequence
-			postMatchActive = true;
-			postMatchTimer = 0;
+			// Final bell + crowd eruption.
+			soundEngine?.bell(3);
+			soundEngine?.crowdPop(1.4);
+			crowdRenderer?.popReaction(1.5);
+			energyBump = 1;
 
 			// Trigger referee winner announcement
 			if (refereeRenderer && matchLoop.state.result) {
@@ -288,8 +463,6 @@
 				const winnerAgent = matchLoop.state.agents.find(a => a.id === winnerId);
 				const winnerDef = winnerAgent ? lookupWrestler(winnerAgent.id) : null;
 				if (winnerAgent && winnerDef) {
-					const winnerIdx = matchLoop.state.agents.indexOf(winnerAgent);
-					// Use the current visual position of the winner
 					const ringHeight = 0.3;
 					const pos: Vec3 = [winnerAgent.positionX, ringHeight, 0];
 					refereeRenderer.showWinner(winnerDef.name, pos);
@@ -302,26 +475,215 @@
 				applyCues(cues);
 			}
 
-			// Continue rendering for post-match cinematics
-			rafId = requestAnimationFrame(frame);
-		} else {
-			// In post-match cinematic sequence
-			postMatchTimer += rawDelta;
-			if (postMatchTimer >= POST_MATCH_DELAY) {
-				// Delay is over — show the result popup
-				syncMatchToUI();
-			} else {
-				// Keep rendering the post-match scene (loser on ground, referee announcing)
-				rafId = requestAnimationFrame(frame);
+			// Camera shake for dramatic finish
+			if (cameraRig) cameraRig.shake(0.1);
+		}
+	}
+
+	// ─── Post Celebration Phase Logic ───────────────────────────────
+
+	function framePostCelebration(rawDelta: number, dt: number) {
+		if (!matchLoop || !wrestlerRenderer) return;
+
+		const ms = matchLoop.state;
+		if (!ms.result) return;
+
+		const winnerIdx = ms.agents.findIndex(a => a.id === ms.result!.winnerId);
+		const loserIdx = ms.agents.findIndex(a => a.id === ms.result!.loserId);
+
+		// Loser stays grounded
+		if (loserIdx >= 0) {
+			wrestlerRenderer.setAnimation(loserIdx, 'grounded');
+		}
+
+		// Winner cycles through celebration poses
+		celebrationPoseTimer += rawDelta;
+		if (celebrationPoseTimer >= 1500) { // Change pose every 1.5 seconds
+			celebrationPoseTimer = 0;
+			celebrationPoseIndex = (celebrationPoseIndex + 1) % CELEBRATION_POSES.length;
+		}
+		if (winnerIdx >= 0) {
+			wrestlerRenderer.setAnimation(winnerIdx, CELEBRATION_POSES[celebrationPoseIndex]);
+		}
+
+		// Keep syncing scene for visual updates
+		syncMatchToScene();
+		updateAtmosphere();
+		if (effectsRenderer) effectsRenderer.update(dt);
+
+		// Keep phase as 'live' during celebration so popup doesn't show
+		const wrestlers = buildWrestlerUIState();
+		state = {
+			...state,
+			phase: 'live',
+			elapsed: ms.elapsed,
+			wrestlers,
+			winner: winnerIdx >= 0 ? winnerIdx : null,
+			winMethod: ms.result?.method ?? null,
+			matchRating: ms.result?.rating ?? 0
+		};
+		matchState.set(state);
+
+		// Transition to result popup after celebration delay
+		if (phaseTimer >= POST_CELEBRATION_DELAY) {
+			ceremonyPhase = 'post_result';
+			state = { ...state, phase: 'post' };
+			matchState.set(state);
+		}
+	}
+
+	// ─── Hit Event Processing ───────────────────────────────────────
+
+	function processHitEvents() {
+		if (!matchLoop || !cameraRig || !wrestlerRenderer) return;
+
+		const hitEvents = matchLoop.drainHitEvents();
+		const ms = matchLoop.state;
+		for (const hit of hitEvents) {
+			// Impact audio + crowd energy from the physical blow.
+			if (soundEngine) {
+				soundEngine.impact(hit.intensity, {
+					critical: hit.critical,
+					blocked: hit.blocked,
+					reversed: hit.reversed
+				});
+			}
+			if (!hit.blocked) {
+				const pop = hit.critical ? 0.9 : Math.min(0.6, hit.intensity * 0.7);
+				energyBump = Math.min(1, energyBump + pop * 0.4);
+				if (hit.critical || hit.intensity > 0.5) {
+					crowdRenderer?.popReaction(pop);
+					soundEngine?.crowdPop(pop * 0.8);
+				}
+			}
+			if (effectsRenderer) {
+				const impactPos: Vec3 = [hit.positionX, 0.65, 0];
+				if (hit.critical) {
+					effectsRenderer.spawnEffect('impact', impactPos, 1.2);
+					effectsRenderer.spawnEffect('sparks', impactPos, 1.0);
+					effectsRenderer.spawnEffect('flash', impactPos, 0.8);
+					effectsRenderer.spawnEffect('dust', impactPos, 0.6);
+				} else if (hit.reversed) {
+					effectsRenderer.spawnEffect('sparks', impactPos, 0.8);
+					effectsRenderer.spawnEffect('impact', impactPos, 0.5);
+				} else if (hit.blocked) {
+					effectsRenderer.spawnEffect('sparks', impactPos, 0.3);
+				} else {
+					effectsRenderer.spawnEffect('impact', impactPos, hit.intensity);
+					effectsRenderer.spawnEffect('dust', impactPos, hit.intensity * 0.4);
+				}
+				const defenderAgent = ms.agents.find((a) => a.id === hit.defenderId);
+				if (defenderAgent && !hit.blocked && defenderAgent.health / defenderAgent.maxHealth < 0.3) {
+					effectsRenderer.spawnEffect('blood', impactPos, hit.intensity);
+				}
+			}
+			if (cameraRig && !hit.blocked) {
+				const shakeIntensity = hit.critical ? 0.14 : hit.intensity * 0.07;
+				cameraRig.shake(shakeIntensity);
+			}
+			if (wrestlerRenderer && !hit.blocked) {
+				const defenderIdx = ms.agents.findIndex((a) => a.id === hit.defenderId);
+				const attackerIdx = ms.agents.findIndex((a) => a.id === hit.attackerId);
+				if (defenderIdx >= 0 && attackerIdx >= 0) {
+					const knockDir = ms.agents[defenderIdx].positionX > ms.agents[attackerIdx].positionX ? 1 : -1;
+					wrestlerRenderer.applyKnockback(defenderIdx, knockDir, hit.intensity);
+					pendingKnockback[defenderIdx as 0 | 1] = { direction: knockDir, intensity: hit.intensity };
+				}
 			}
 		}
+	}
+
+	/** Generate commentary + crowd/audio reactions for newly logged events. */
+	function narrateNewEvents() {
+		if (!matchLoop || !commentator) return;
+		const log = matchLoop.state.log;
+
+		for (let i = lastLogLen; i < log.length; i++) {
+			const entry = log[i];
+			const line = commentator.consume(matchLoop.state, entry);
+			if (line) pushLine(line);
+			reactToEvent(entry.type);
+		}
+		lastLogLen = log.length;
+
+		// Sparse atmospheric color commentary keyed off live match state.
+		const color = commentator.colorCommentary(matchLoop.state);
+		if (color) pushLine(color);
+	}
+
+	/** Crowd/audio swell for dramatic narrative beats (impacts handled separately). */
+	function reactToEvent(type: string) {
+		let pop = 0;
+		let bump = 0;
+		switch (type) {
+			case 'finisher_impact':
+			case 'finisher_counter':
+				pop = 1.4; bump = 0.9; break;
+			case 'finisher_start':
+				pop = 0.5; bump = 0.45; break;
+			case 'knockdown':
+				pop = 1.0; bump = 0.6; break;
+			case 'comeback':
+				pop = 1.1; bump = 0.7; break;
+			case 'reversal':
+				pop = 0.7; bump = 0.4; break;
+			case 'combo_complete':
+				pop = 0.6; bump = 0.35; break;
+			case 'taunt':
+				pop = 0.3; bump = 0.15; break;
+			default:
+				return;
+		}
+		crowdRenderer?.popReaction(pop);
+		soundEngine?.crowdPop(pop * 0.85);
+		energyBump = Math.min(1, energyBump + bump);
+	}
+
+	function pushLine(line: CommentaryLine) {
+		commentaryBuffer = [...commentaryBuffer, line].slice(-12);
+	}
+
+	/** Drive crowd visuals + audio bed from match excitement each frame. */
+	function updateAmbience(dt: number) {
+		if (!crowdRenderer && !soundEngine) return;
+
+		let baseline = 0.3;
+		if (ceremonyPhase === 'intro_p1' || ceremonyPhase === 'intro_p2') {
+			baseline = 0.32;
+		} else if (ceremonyPhase === 'countdown') {
+			baseline = 0.5 + Math.min(phaseTimer / COUNTDOWN_DURATION, 1) * 0.25;
+		} else if ((ceremonyPhase === 'fight' || ceremonyPhase === 'post_celebration') && matchLoop) {
+			let maxHeat = 0;
+			let maxMomentum = 0;
+			for (const a of matchLoop.state.agents) {
+				maxHeat = Math.max(maxHeat, Math.abs(a.psych.crowdHeat));
+				maxMomentum = Math.max(maxMomentum, a.momentum);
+			}
+			baseline = 0.28 + maxHeat * 0.4 + (maxMomentum / 100) * 0.15;
+			if (ceremonyPhase === 'post_celebration') baseline = Math.max(baseline, 0.6);
+		}
+
+		energyBump *= Math.max(0, 1 - dt * 0.9);
+		const target = Math.max(0, Math.min(1, baseline + energyBump));
+
+		crowdRenderer?.setExcitement(target);
+		crowdRenderer?.update(dt);
+		soundEngine?.setCrowdEnergy(target);
+		soundEngine?.update(dt);
+	}
+
+	function toggleMute() {
+		muted = !muted;
+		state = { ...state, muted };
+		soundEngine?.resume();
+		soundEngine?.setMuted(muted);
 	}
 
 	function applyCues(cues: CinematicCue[]) {
 		for (const cue of cues) {
 			switch (cue.type) {
 				case 'camera':
-					if (cameraRig) {
+					if (cameraRig && !freeCam) {
 						cameraRig.setPreset(cue.preset, cue.target);
 						cameraRig.setTransitionSpeed(cue.transitionSpeed);
 					}
@@ -337,7 +699,6 @@
 					if (effectsRenderer) effectsRenderer.spawnEffect(cue.effect, cue.position, cue.intensity);
 					break;
 				case 'slow_motion':
-					// Slow-motion handled via director.timeDilation — add cinematic rumble
 					if (cameraRig && cue.factor < 0.3) {
 						cameraRig.shake(0.02);
 					}
@@ -357,33 +718,27 @@
 		if (!sceneManager) return;
 		const speed = Math.max(0.01, atmosphereTransitionSpeed);
 
-		// Lerp all atmosphere values
 		atmosphereCurrent.exposure = lerp(atmosphereCurrent.exposure, atmosphereTarget.exposure, speed);
 		atmosphereCurrent.spotlightIntensity = lerp(atmosphereCurrent.spotlightIntensity, atmosphereTarget.spotlightIntensity, speed);
 		atmosphereCurrent.titantronIntensity = lerp(atmosphereCurrent.titantronIntensity, atmosphereTarget.titantronIntensity, speed);
 		atmosphereCurrent.fogDensity = lerp(atmosphereCurrent.fogDensity, atmosphereTarget.fogDensity, speed);
 
-		// Apply to renderer
 		sceneManager.renderer.toneMappingExposure = atmosphereCurrent.exposure;
 
-		// Apply to arena lighting
 		if (arenaRenderer) {
 			arenaRenderer.setSpotlightIntensity(atmosphereCurrent.spotlightIntensity);
 			arenaRenderer.setTitantronIntensity(atmosphereCurrent.titantronIntensity);
 		}
 
-		// Apply fog density — map density value to linear fog far distance
-		// Lower density → farther fog (more visibility); higher density → closer fog
 		const fog = sceneManager.scene.fog;
 		if (fog && 'far' in fog) {
 			(fog as { far: number }).far = 60 / Math.max(atmosphereCurrent.fogDensity * 40, 0.01);
 		}
 	}
 
-	function syncMatchToUI() {
-		if (!matchLoop) return;
-		const ms = matchLoop.state;
-		const wrestlers: WrestlerUIState[] = ms.agents.map((a, i) => ({
+	function buildWrestlerUIState(): WrestlerUIState[] {
+		if (!matchLoop) return [];
+		return matchLoop.state.agents.map((a, i) => ({
 			entityId: i,
 			name: a.name,
 			health: a.health,
@@ -398,6 +753,12 @@
 			emotion: a.psych.emotion,
 			confidence: a.psych.confidence
 		}));
+	}
+
+	function syncMatchToUI() {
+		if (!matchLoop) return;
+		const ms = matchLoop.state;
+		const wrestlers = buildWrestlerUIState();
 
 		const recentEvents = ms.log.slice(-8).map((l) => ({
 			frame: l.tick,
@@ -405,9 +766,7 @@
 			detail: l.detail
 		}));
 
-		// During post-match cinematic (loser on ground, referee announcing), keep phase as 'live'
-		// so the result popup doesn't show yet. Only switch to 'post' after the cinematic delay.
-		const phase = ms.running ? 'live' : (postMatchActive && postMatchTimer < POST_MATCH_DELAY ? 'live' : 'post');
+		const phase = ms.running ? 'live' : 'post';
 
 		state = {
 			phase,
@@ -415,12 +774,29 @@
 			elapsed: ms.elapsed,
 			wrestlers,
 			recentEvents,
+			commentaryLines: commentaryBuffer.slice(-12),
+			muted,
 			winner: ms.result ? ms.agents.findIndex((a) => a.id === ms.result!.winnerId) : null,
 			winMethod: ms.result?.method ?? null,
 			matchRating: ms.result?.rating ?? 0
 		};
 
 		matchState.set(state);
+	}
+
+	/** How far a wrestler lunges toward the opponent during an offensive move. */
+	function attackLunge(agent: { phase: string; phaseFrames: number; phaseTotalFrames: number; moveCategory: string | null }): number {
+		const cat = agent.moveCategory;
+		const offensive =
+			cat === 'strike' || cat === 'grapple' || cat === 'signature' ||
+			cat === 'finisher' || cat === 'aerial' || cat === 'submission';
+		if (!offensive) return 0;
+		const LUNGE = 0.5;
+		const prog = 1 - agent.phaseFrames / Math.max(1, agent.phaseTotalFrames); // 0→1
+		if (agent.phase === 'windup') return LUNGE * 0.45 * prog; // lean in
+		if (agent.phase === 'active' || agent.phase === 'finisher_impact') return LUNGE; // full extension
+		if (agent.phase === 'recovery') return LUNGE * (1 - prog) * 0.6; // settle back
+		return 0;
 	}
 
 	function syncMatchToScene() {
@@ -430,25 +806,25 @@
 		const ms = matchLoop.state;
 		const wrestlerPositions: Vec3[] = [];
 
-		// ── Visual ring circling ──
-		// When both fighters are in neutral (idle/moving), they slowly circle.
-		// This maps the 1D simulation distance onto a 2D ring surface.
 		const [a0, a1] = ms.agents;
+		const rawGap = Math.abs(a0.positionX - a1.positionX);
 		const bothNeutral =
 			(a0.phase === 'idle' || a0.phase === 'moving') &&
 			(a1.phase === 'idle' || a1.phase === 'moving');
-		if (bothNeutral) {
-			// Slowly rotate the circling angle
-			circleAngleTarget += 0.008; // ~0.5 rad/sec at 60fps → slow orbit
+		// Gentle "sizing each other up" circle only while at range and neutral;
+		// once they close in they square up and trade instead of orbiting.
+		if (bothNeutral && rawGap > 1.4) {
+			circleAngleTarget += 0.004;
 		}
-		// Smooth lerp toward target angle
 		circleAngle = lerp(circleAngle, circleAngleTarget, 0.03);
-		// Natural Z-axis sway
-		circleSway = Math.sin(circleAngle * 1.7) * 0.3;
+		circleSway = Math.sin(circleAngle * 1.7) * 0.15;
 
-		// Compute the midpoint and half-distance from simulation
 		const midX = (a0.positionX + a1.positionX) * 0.5;
-		const halfDist = Math.abs(a0.positionX - a1.positionX) * 0.5;
+		// The sim parks fighters ~1.2 units apart to attack, but arm reach is
+		// only ~0.34 — so strikes would visibly whiff. Compress the visual gap so
+		// they fight at a realistic, contact-making distance (sim stays untouched).
+		const visualGap = Math.max(0.5, Math.min(1.8, 0.5 + (rawGap - 0.6) * 0.55));
+		const halfDist = visualGap * 0.5;
 
 		for (let i = 0; i < ms.agents.length; i++) {
 			const agent = ms.agents[i];
@@ -457,37 +833,42 @@
 				? ringHeight + 0.1
 				: ringHeight;
 
-			// Project 1D position onto 2D ring surface using circling angle.
-			// Fighter 0 is at angle, fighter 1 is at angle + PI (opposite side).
 			const angleOffset = i === 0 ? 0 : Math.PI;
 			const theta = circleAngle + angleOffset;
-			const ringX = midX + Math.cos(theta) * halfDist;
-			const ringZ = Math.sin(theta) * halfDist * 0.6 + circleSway * (i === 0 ? 1 : -1);
+			let ringX = midX + Math.cos(theta) * halfDist;
+			let ringZ = Math.sin(theta) * halfDist * 0.6 + circleSway * (i === 0 ? 1 : -1);
 
-			// Compute facing: each wrestler faces the other
 			const otherTheta = circleAngle + (i === 0 ? Math.PI : 0);
 			const otherX = midX + Math.cos(otherTheta) * halfDist;
 			const otherZ = Math.sin(otherTheta) * halfDist * 0.6 + circleSway * (i === 0 ? -1 : 1);
-			const facingAngle = Math.atan2(otherX - ringX, otherZ - ringZ);
 
-			// Convert facing angle to quaternion (rotation around Y axis)
+			// Face the opponent (computed before lunge so the lunge drives straight in).
+			const facingAngle = Math.atan2(otherX - ringX, otherZ - ringZ);
 			const halfAngle = facingAngle * 0.5;
 			const qy = Math.sin(halfAngle);
 			const qw = Math.cos(halfAngle);
+
+			// Attack lunge — drive toward the opponent during a strike/grapple so
+			// the hand or leg actually makes contact, then settle back.
+			const lunge = Math.min(attackLunge(agent), Math.max(0, visualGap - 0.28));
+			if (lunge > 0) {
+				const dx = otherX - ringX;
+				const dz = otherZ - ringZ;
+				const len = Math.hypot(dx, dz) || 1;
+				ringX += (dx / len) * lunge;
+				ringZ += (dz / len) * lunge;
+			}
 
 			const pos: Vec3 = [ringX, y, ringZ];
 			wrestlerPositions.push(pos);
 			wrestlerRenderer.updateTransform(i, pos, [0, qy, 0, qw]);
 
-			// Compute velocity for walk cycle animation
 			const dx = agent.positionX - prevPositionX[i as 0 | 1];
 			const velocity = Math.abs(dx) * 60;
-			// Add circling velocity component when both neutral
 			const circleVelocity = bothNeutral ? 0.3 : 0;
 			const normalizedVelocity = Math.min((velocity + circleVelocity) / 3.0, 1.0);
 			prevPositionX[i as 0 | 1] = agent.positionX;
 
-			// ── Derive finisher role from agent phase ──
 			let finisherRole: 'attacker' | 'defender' | 'none' = 'none';
 			if (agent.phase === 'finisher_setup' || agent.phase === 'finisher_impact') {
 				finisherRole = 'attacker';
@@ -495,7 +876,6 @@
 				finisherRole = 'defender';
 			}
 
-			// ── Build AnimationCommand from MatchState ──
 			const cmd: AnimationCommand = {
 				phase: agent.phase,
 				phaseFrames: agent.phaseFrames,
@@ -506,6 +886,7 @@
 				comboStep: agent.comboStep ?? -1,
 				comboTotalSteps: agent.comboTotalSteps ?? -1,
 				velocity: normalizedVelocity,
+				stamina: agent.stamina / Math.max(1, agent.maxStamina),
 				comebackActive: agent.comebackActive,
 				emotion: agent.psych.emotion,
 				knockback: pendingKnockback[i as 0 | 1],
@@ -513,10 +894,7 @@
 				finisherRole,
 			};
 
-			// Send rich animation command to the renderer
 			wrestlerRenderer.setAnimationCommand(i, cmd);
-
-			// Clear consumed knockback
 			pendingKnockback[i as 0 | 1] = null;
 		}
 
@@ -549,6 +927,25 @@
 		setScreen('setup');
 	}
 
+	// ─── Helper: format stat bar width ──────────────────────────────
+	function statBarWidth(value: number): string {
+		return `${value}%`;
+	}
+
+	function alignmentLabel(alignment: string): string {
+		if (alignment === 'face') return 'FAN FAVORITE';
+		if (alignment === 'heel') return 'VILLAIN';
+		return 'WILDCARD';
+	}
+
+	function buildLabel(build: string): string {
+		if (build === 'super_heavy') return 'SUPER HEAVYWEIGHT';
+		if (build === 'heavy') return 'HEAVYWEIGHT';
+		if (build === 'medium') return 'MIDDLEWEIGHT';
+		if (build === 'light') return 'LIGHTWEIGHT';
+		return build.toUpperCase();
+	}
+
 	onDestroy(() => {
 		cleanupMatch();
 	});
@@ -559,21 +956,148 @@
 		<Canvas onReady={onCanvasReady} onResize={onCanvasResize} />
 	</div>
 
-	<div class="overlay">
-		<HUD wrestlers={state.wrestlers} matchTime={state.elapsed} {matchNumber}
-			wrestler1Name={lookupWrestler(wrestler1Id).name}
-			wrestler2Name={lookupWrestler(wrestler2Id).name} />
-	</div>
+	<!-- HUD: only show during fight and post phases -->
+	{#if ceremonyPhase === 'fight' || ceremonyPhase === 'post_celebration' || ceremonyPhase === 'post_result'}
+		<div class="overlay">
+			<HUD wrestlers={state.wrestlers} matchTime={state.elapsed} {matchNumber}
+				wrestler1Name={w1Def.name}
+				wrestler2Name={w2Def.name} />
+		</div>
 
-	<div class="commentary-panel">
-		<Commentary events={state.recentEvents} />
-	</div>
+		<div class="commentary-panel">
+			<Commentary lines={state.commentaryLines} />
+		</div>
+	{/if}
 
-	<div class="controls">
-		<button class="exit-btn glass-btn" onclick={exitMatch}>EXIT</button>
-	</div>
+	<!-- ─── Intro Overlay ──────────────────────────────────────────── -->
+	{#if ceremonyPhase === 'intro_p1' || ceremonyPhase === 'intro_p2'}
+		{@const def = introDefs[introWrestlerIdx]}
+		{@const progress = Math.min(phaseTimer / INTRO_DURATION, 1)}
+		<div class="intro-overlay" class:intro-left={introWrestlerIdx === 0} class:intro-right={introWrestlerIdx === 1}>
+			<div class="intro-card" class:card-enter={phaseTimer < 800}>
+				<div class="intro-label font-display">INTRODUCING</div>
+				<div class="intro-name font-display">{def.name}</div>
+				<div class="intro-nickname font-display">"{def.nickname}"</div>
 
-	{#if state.phase === 'post' && state.winMethod}
+				<div class="intro-divider"></div>
+
+				<div class="intro-stats">
+					<div class="stat-row">
+						<span class="stat-label font-mono">STR</span>
+						<div class="stat-bar"><div class="stat-fill str" style="width: {statBarWidth(def.stats.strength)}"></div></div>
+						<span class="stat-value font-mono">{def.stats.strength}</span>
+					</div>
+					<div class="stat-row">
+						<span class="stat-label font-mono">SPD</span>
+						<div class="stat-bar"><div class="stat-fill spd" style="width: {statBarWidth(def.stats.speed)}"></div></div>
+						<span class="stat-value font-mono">{def.stats.speed}</span>
+					</div>
+					<div class="stat-row">
+						<span class="stat-label font-mono">TEC</span>
+						<div class="stat-bar"><div class="stat-fill tec" style="width: {statBarWidth(def.stats.technique)}"></div></div>
+						<span class="stat-value font-mono">{def.stats.technique}</span>
+					</div>
+					<div class="stat-row">
+						<span class="stat-label font-mono">CHA</span>
+						<div class="stat-bar"><div class="stat-fill cha" style="width: {statBarWidth(def.stats.charisma)}"></div></div>
+						<span class="stat-value font-mono">{def.stats.charisma}</span>
+					</div>
+				</div>
+
+				<div class="intro-meta">
+					<span class="meta-item font-mono">{(def.appearance.height * 100).toFixed(0)}cm</span>
+					<span class="meta-sep">·</span>
+					<span class="meta-item font-mono">{def.appearance.weight}kg</span>
+					<span class="meta-sep">·</span>
+					<span class="meta-item font-mono">{buildLabel(def.appearance.build)}</span>
+				</div>
+				<div class="intro-alignment font-display" class:face={def.alignment === 'face'} class:heel={def.alignment === 'heel'}>
+					{alignmentLabel(def.alignment)}
+				</div>
+			</div>
+
+			<!-- Progress bar at bottom of intro -->
+			<div class="intro-progress">
+				<div class="intro-progress-fill" style="width: {progress * 100}%"></div>
+			</div>
+		</div>
+	{/if}
+
+	<!-- ─── Countdown Overlay ──────────────────────────────────────── -->
+	{#if ceremonyPhase === 'countdown'}
+		<div class="countdown-overlay">
+			{#if countdownNumber > 0}
+				<div class="countdown-number font-display" class:countdown-pop={true}>
+					{countdownNumber}
+				</div>
+			{:else}
+				<div class="countdown-fight font-display">FIGHT!</div>
+			{/if}
+		</div>
+	{/if}
+
+	<!-- ─── Post-Match Winner Banner ─────────────────────────────── -->
+	{#if ceremonyPhase === 'post_celebration' && state.winner !== null}
+		<div class="winner-banner">
+			<div class="winner-banner-label font-display">YOUR WINNER</div>
+			<div class="winner-banner-name font-display">
+				{state.wrestlers[state.winner]?.name ?? 'Unknown'}
+			</div>
+			<div class="winner-banner-method font-display">
+				BY {state.winMethod?.toUpperCase() ?? 'DECISION'}
+			</div>
+		</div>
+	{/if}
+
+	<!-- Controls: show during fight and celebration -->
+	{#if ceremonyPhase === 'fight' || ceremonyPhase === 'post_celebration'}
+		<div class="controls">
+			<button
+				class="camera-toggle glass-btn"
+				onclick={toggleCameraMode}
+				title="Toggle camera mode (C)"
+			>
+				{!freeCam ? 'FREE CAM' : 'AUTO CAM'}
+			</button>
+			<button
+				class="camera-toggle glass-btn"
+				onclick={toggleMute}
+				title="Toggle sound"
+			>
+				{state.muted ? 'SOUND OFF' : 'SOUND ON'}
+			</button>
+			<button class="exit-btn glass-btn" onclick={exitMatch}>EXIT</button>
+		</div>
+
+		<div class="help-anchor">
+			{#if showGuide}
+				<div class="help-tooltip glass-strong">
+					<div class="guide-items">
+						<div class="guide-item">
+							<span class="guide-key font-mono">Left Drag</span>
+							<span class="guide-desc">Orbit</span>
+						</div>
+						<div class="guide-item">
+							<span class="guide-key font-mono">Scroll</span>
+							<span class="guide-desc">Zoom</span>
+						</div>
+						<div class="guide-item">
+							<span class="guide-key font-mono">Right Drag</span>
+							<span class="guide-desc">Pan</span>
+						</div>
+						<div class="guide-item">
+							<span class="guide-key font-mono">C</span>
+							<span class="guide-desc">Auto camera</span>
+						</div>
+					</div>
+				</div>
+			{/if}
+			<button class="help-btn glass-btn" onclick={toggleGuide} title="Camera controls">?</button>
+		</div>
+	{/if}
+
+	<!-- Result popup -->
+	{#if ceremonyPhase === 'post_result' && state.winMethod}
 		<div class="match-result">
 			<div class="result-card glass-strong">
 				<h2 class="result-title font-display">MATCH OVER</h2>
@@ -644,6 +1168,364 @@
 		font-size: 0.9rem;
 		letter-spacing: 0.08em;
 		padding: 0.5rem 1rem;
+	}
+
+	.camera-toggle {
+		font-family: var(--font-display);
+		font-size: 0.9rem;
+		letter-spacing: 0.08em;
+		padding: 0.5rem 1rem;
+		margin-right: 0.5rem;
+	}
+
+	.help-anchor {
+		position: absolute;
+		bottom: 1rem;
+		right: 1rem;
+		z-index: 12;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0.5rem;
+	}
+
+	.help-btn {
+		width: 2rem;
+		height: 2rem;
+		border-radius: 50%;
+		font-size: 1rem;
+		font-weight: 700;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		color: var(--text-secondary, #aaa);
+		cursor: pointer;
+	}
+
+	.help-tooltip {
+		padding: 0.6rem 0.8rem;
+		border-radius: 8px;
+		animation: fade-in 0.2s ease-out;
+	}
+
+	.guide-items {
+		display: flex;
+		flex-direction: column;
+		gap: 0.35rem;
+	}
+
+	.guide-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.guide-key {
+		font-size: 0.65rem;
+		padding: 0.1rem 0.35rem;
+		border-radius: 3px;
+		background: rgba(255, 255, 255, 0.08);
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		color: var(--text-primary, #fff);
+		min-width: 65px;
+		text-align: center;
+	}
+
+	.guide-desc {
+		font-size: 0.7rem;
+		color: var(--text-secondary, #aaa);
+		white-space: nowrap;
+	}
+
+	/* ─── Intro Overlay ────────────────────────────── */
+	.intro-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		z-index: 15;
+		pointer-events: none;
+		background: linear-gradient(135deg, rgba(0, 0, 0, 0.3) 0%, transparent 60%);
+	}
+
+	.intro-overlay.intro-left {
+		justify-content: flex-start;
+		padding-left: 3rem;
+	}
+
+	.intro-overlay.intro-right {
+		justify-content: flex-end;
+		padding-right: 3rem;
+	}
+
+	.intro-card {
+		background: rgba(5, 5, 15, 0.85);
+		backdrop-filter: blur(12px);
+		border: 1px solid rgba(255, 50, 80, 0.3);
+		border-radius: 12px;
+		padding: 2rem 2.5rem;
+		min-width: 280px;
+		max-width: 340px;
+		animation: intro-slide-in 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	.intro-card.card-enter {
+		animation: intro-slide-in 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	@keyframes intro-slide-in {
+		from {
+			opacity: 0;
+			transform: translateX(-40px) scale(0.95);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0) scale(1);
+		}
+	}
+
+	.intro-right .intro-card {
+		animation-name: intro-slide-in-right;
+	}
+
+	@keyframes intro-slide-in-right {
+		from {
+			opacity: 0;
+			transform: translateX(40px) scale(0.95);
+		}
+		to {
+			opacity: 1;
+			transform: translateX(0) scale(1);
+		}
+	}
+
+	.intro-label {
+		font-size: 0.75rem;
+		letter-spacing: 0.25em;
+		color: rgba(255, 68, 102, 0.8);
+		text-shadow: 0 0 10px rgba(255, 68, 102, 0.4);
+		margin-bottom: 0.3rem;
+	}
+
+	.intro-name {
+		font-size: 2rem;
+		letter-spacing: 0.04em;
+		color: #fff;
+		text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+		line-height: 1.1;
+	}
+
+	.intro-nickname {
+		font-size: 1rem;
+		color: rgba(255, 200, 100, 0.8);
+		font-style: italic;
+		margin-top: 0.2rem;
+		letter-spacing: 0.02em;
+	}
+
+	.intro-divider {
+		height: 1px;
+		background: linear-gradient(90deg, rgba(255, 50, 80, 0.6), rgba(255, 50, 80, 0), transparent);
+		margin: 1rem 0;
+	}
+
+	.intro-stats {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.stat-row {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.stat-label {
+		font-size: 0.7rem;
+		color: rgba(255, 255, 255, 0.6);
+		width: 28px;
+		letter-spacing: 0.05em;
+	}
+
+	.stat-bar {
+		flex: 1;
+		height: 6px;
+		background: rgba(255, 255, 255, 0.08);
+		border-radius: 3px;
+		overflow: hidden;
+	}
+
+	.stat-fill {
+		height: 100%;
+		border-radius: 3px;
+		transition: width 0.8s ease-out;
+	}
+
+	.stat-fill.str { background: linear-gradient(90deg, #ef4444, #f87171); }
+	.stat-fill.spd { background: linear-gradient(90deg, #3b82f6, #60a5fa); }
+	.stat-fill.tec { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
+	.stat-fill.cha { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+
+	.stat-value {
+		font-size: 0.7rem;
+		color: rgba(255, 255, 255, 0.7);
+		width: 24px;
+		text-align: right;
+	}
+
+	.intro-meta {
+		margin-top: 0.8rem;
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.7rem;
+		color: rgba(255, 255, 255, 0.5);
+	}
+
+	.meta-sep {
+		color: rgba(255, 255, 255, 0.25);
+	}
+
+	.intro-alignment {
+		margin-top: 0.5rem;
+		font-size: 0.7rem;
+		letter-spacing: 0.15em;
+		color: rgba(255, 255, 255, 0.5);
+	}
+
+	.intro-alignment.face { color: rgba(34, 197, 94, 0.9); }
+	.intro-alignment.heel { color: rgba(239, 68, 68, 0.9); }
+
+	.intro-progress {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		height: 3px;
+		background: rgba(255, 255, 255, 0.05);
+	}
+
+	.intro-progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #ff4466, #ff6b88);
+		transition: width 0.1s linear;
+	}
+
+	/* ─── Countdown Overlay ────────────────────────── */
+	.countdown-overlay {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 15;
+		pointer-events: none;
+	}
+
+	.countdown-number {
+		font-size: 12rem;
+		color: #fff;
+		text-shadow:
+			0 0 40px rgba(255, 68, 102, 0.8),
+			0 0 80px rgba(255, 68, 102, 0.4),
+			0 4px 20px rgba(0, 0, 0, 0.8);
+		animation: countdown-pulse 1s ease-out;
+		letter-spacing: 0.05em;
+	}
+
+	@keyframes countdown-pulse {
+		0% {
+			transform: scale(2);
+			opacity: 0;
+		}
+		30% {
+			transform: scale(0.9);
+			opacity: 1;
+		}
+		100% {
+			transform: scale(1);
+			opacity: 1;
+		}
+	}
+
+	.countdown-fight {
+		font-size: 8rem;
+		color: #ff4466;
+		text-shadow:
+			0 0 60px rgba(255, 68, 102, 0.9),
+			0 0 120px rgba(255, 68, 102, 0.5),
+			0 4px 20px rgba(0, 0, 0, 0.8);
+		animation: fight-flash 0.8s ease-out;
+		letter-spacing: 0.1em;
+	}
+
+	@keyframes fight-flash {
+		0% {
+			transform: scale(3);
+			opacity: 0;
+		}
+		40% {
+			transform: scale(0.85);
+			opacity: 1;
+		}
+		60% {
+			transform: scale(1.1);
+		}
+		100% {
+			transform: scale(1);
+			opacity: 1;
+		}
+	}
+
+	/* ─── Winner Banner (post-celebration) ─────────── */
+	.winner-banner {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		text-align: center;
+		z-index: 15;
+		pointer-events: none;
+		animation: banner-enter 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+	}
+
+	@keyframes banner-enter {
+		from {
+			opacity: 0;
+			transform: translate(-50%, -50%) scale(0.8);
+		}
+		to {
+			opacity: 1;
+			transform: translate(-50%, -50%) scale(1);
+		}
+	}
+
+	.winner-banner-label {
+		font-size: 1.2rem;
+		letter-spacing: 0.3em;
+		color: rgba(255, 200, 50, 0.9);
+		text-shadow: 0 0 20px rgba(255, 200, 50, 0.5);
+		margin-bottom: 0.3rem;
+	}
+
+	.winner-banner-name {
+		font-size: 4rem;
+		color: #fff;
+		text-shadow:
+			0 0 30px rgba(255, 68, 102, 0.6),
+			0 4px 20px rgba(0, 0, 0, 0.8);
+		letter-spacing: 0.04em;
+		line-height: 1.1;
+	}
+
+	.winner-banner-method {
+		font-size: 1.5rem;
+		color: rgba(255, 68, 102, 0.9);
+		letter-spacing: 0.15em;
+		margin-top: 0.5rem;
+		text-shadow: 0 0 15px rgba(255, 68, 102, 0.4);
 	}
 
 	/* ─── Match Result ───────────────────────────── */

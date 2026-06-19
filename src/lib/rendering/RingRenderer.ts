@@ -7,7 +7,7 @@ export interface RingConfig {
 	height: number;
 }
 
-const DEFAULT_RING: RingConfig = { radius: 3.5, height: 0.3 };
+const DEFAULT_RING: RingConfig = { radius: 2.625, height: 0.3 };
 
 /**
  * Builds the battle arena platform — a bright hexagonal floating platform
@@ -127,7 +127,7 @@ export class RingRenderer {
 
 	private buildUnderGlow(): void {
 		// Soft glow disc beneath the floating platform
-		const glowGeo = new THREE.CircleGeometry(8, 32);
+		const glowGeo = new THREE.CircleGeometry(6, 32);
 		const glowMat = new THREE.MeshBasicMaterial({
 			color: 0x2244aa,
 			transparent: true,

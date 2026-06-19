@@ -27,6 +27,8 @@ export interface AnimationCommand {
 	comboTotalSteps: number;
 	/** Normalized velocity (0-1). */
 	velocity: number;
+	/** Normalized stamina (0 = exhausted, 1 = fresh). Drives fatigue posture. */
+	stamina?: number;
 	/** Whether a comeback is active (for intensity scaling). */
 	comebackActive: boolean;
 	/** Current emotional state. */

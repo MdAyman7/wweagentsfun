@@ -51,6 +51,8 @@ export function syncStores(world: World, frame: number): void {
 		elapsed: matchTime,
 		wrestlers,
 		recentEvents: [], // TODO: populated by event log listener
+		commentaryLines: [],
+		muted: false,
 		winner: null, // TODO: populated by match end event
 		winMethod: null,
 		matchRating: 0

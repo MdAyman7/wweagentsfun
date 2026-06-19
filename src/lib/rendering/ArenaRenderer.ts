@@ -17,7 +17,7 @@ export class ArenaRenderer {
 	private pillarOrbs: THREE.Mesh[] = [];
 
 	/** Ring radius — matches RingRenderer default */
-	private readonly ringRadius = 3.5;
+	private readonly ringRadius = 2.625;
 
 	constructor(private scene: THREE.Scene) {
 		this.group = new THREE.Group();
@@ -244,149 +244,80 @@ export class ArenaRenderer {
 
 	private buildBanners(): void {
 		const r = this.ringRadius;
-		const bannerHeight = 0.8;
-		const bannerWidth = 2.8;
+		const bannerHeight = 0.62;
+		const bannerWidth = 2.17; // 3.5 : 1, matches canvas ratio for undistorted text
 
 		interface BannerInfo {
 			title: string;
 			subtitle: string;
-			line3: string;
+			accent: string; // accent color for this banner
 			angle: number;
 			yPos: number;
 		}
 
 		const banners: BannerInfo[] = [
-			{
-				title: 'WWE AGENTS',
-				subtitle: 'CHAMPIONSHIP FIGHT',
-				line3: 'LIVE PAY-PER-VIEW EVENT',
-				angle: 0,
-				yPos: 2.0
-			},
-			{
-				title: 'FIGHT NIGHT',
-				subtitle: 'MAIN EVENT',
-				line3: 'AI vs AI \u2022 NO HOLDS BARRED',
-				angle: Math.PI * 0.6,
-				yPos: 2.2
-			},
-			{
-				title: 'BATTLE ARENA',
-				subtitle: 'WORLD HEAVYWEIGHT TITLE',
-				line3: 'WINNER TAKES ALL',
-				angle: -Math.PI * 0.6,
-				yPos: 1.9
-			},
-			{
-				title: 'LIVE',
-				subtitle: 'WWEAGENTS.FUN',
-				line3: 'TUNE IN NOW',
-				angle: Math.PI,
-				yPos: 2.1
-			}
+			{ title: 'WWE AGENTS', subtitle: 'MAIN EVENT', accent: '#ff3b5c', angle: 0, yPos: 1.55 },
+			{ title: 'FIGHT NIGHT', subtitle: 'LIVE TONIGHT', accent: '#3b9bff', angle: Math.PI * 0.6, yPos: 1.6 },
+			{ title: 'BATTLE ARENA', subtitle: 'WORLD TITLE', accent: '#ffb43b', angle: -Math.PI * 0.6, yPos: 1.5 },
+			{ title: 'WWEAGENTS.FUN', subtitle: 'WINNER TAKES ALL', accent: '#ff3b5c', angle: Math.PI, yPos: 1.55 }
 		];
+
+		const W = 1120;
+		const H = 320;
 
 		for (let i = 0; i < banners.length; i++) {
 			const info = banners[i];
-			const dist = r + 2.5;
+			const dist = r + 1.95;
 			const x = Math.cos(info.angle) * dist;
 			const z = Math.sin(info.angle) * dist;
 
-			// Create banner canvas — high res for crisp text
 			const canvas = document.createElement('canvas');
-			canvas.width = 640;
-			canvas.height = 200;
+			canvas.width = W;
+			canvas.height = H;
 			const ctx = canvas.getContext('2d')!;
 
-			// Dark gradient background
-			const grad = ctx.createLinearGradient(0, 0, 640, 0);
-			grad.addColorStop(0, 'rgba(8, 3, 18, 0.95)');
-			grad.addColorStop(0.3, 'rgba(25, 8, 40, 0.95)');
-			grad.addColorStop(0.5, 'rgba(45, 12, 55, 0.95)');
-			grad.addColorStop(0.7, 'rgba(25, 8, 40, 0.95)');
-			grad.addColorStop(1, 'rgba(8, 3, 18, 0.95)');
+			// Clean, near-opaque dark panel for maximum text contrast
+			const grad = ctx.createLinearGradient(0, 0, 0, H);
+			grad.addColorStop(0, 'rgba(14, 16, 26, 0.97)');
+			grad.addColorStop(1, 'rgba(6, 7, 14, 0.97)');
 			ctx.fillStyle = grad;
-			ctx.fillRect(0, 0, 640, 200);
+			ctx.fillRect(0, 0, W, H);
 
-			// Double border — outer glow + inner accent
-			ctx.shadowColor = '#ff2244';
-			ctx.shadowBlur = 14;
-			ctx.strokeStyle = '#ff3355';
-			ctx.lineWidth = 4;
-			ctx.strokeRect(4, 4, 632, 192);
-			ctx.shadowBlur = 0;
-			ctx.strokeStyle = 'rgba(255, 100, 120, 0.4)';
-			ctx.lineWidth = 1;
-			ctx.strokeRect(10, 10, 620, 180);
+			// Single crisp accent frame
+			ctx.strokeStyle = info.accent;
+			ctx.lineWidth = 6;
+			ctx.strokeRect(12, 12, W - 24, H - 24);
 
-			// Corner accents
-			const cornerLen = 24;
-			ctx.strokeStyle = '#ff4466';
-			ctx.lineWidth = 2;
-			for (const [cx, cy, dx, dy] of [
-				[14, 14, 1, 1], [626, 14, -1, 1],
-				[14, 186, 1, -1], [626, 186, -1, -1]
-			] as [number, number, number, number][]) {
-				ctx.beginPath();
-				ctx.moveTo(cx, cy);
-				ctx.lineTo(cx + cornerLen * dx, cy);
-				ctx.moveTo(cx, cy);
-				ctx.lineTo(cx, cy + cornerLen * dy);
-				ctx.stroke();
-			}
+			// Accent bar under the title
+			ctx.fillStyle = info.accent;
+			ctx.fillRect(W / 2 - 230, 198, 460, 5);
 
-			// Main title — bold, large, with glow
+			// Main title — large, crisp, high-contrast white with a soft accent glow
 			ctx.textAlign = 'center';
 			ctx.textBaseline = 'middle';
-			ctx.shadowColor = '#ff2244';
-			ctx.shadowBlur = 20;
-			ctx.fillStyle = '#ff4466';
-			ctx.font = 'bold 52px "Impact", "Arial Black", "Helvetica Neue", sans-serif';
-			ctx.fillText(info.title, 320, 65);
-
-			// Second pass for extra brightness
-			ctx.shadowBlur = 10;
-			ctx.fillStyle = '#ff8899';
-			ctx.fillText(info.title, 320, 65);
+			ctx.font = '800 92px "Arial Black", "Helvetica Neue", Arial, sans-serif';
+			ctx.shadowColor = info.accent;
+			ctx.shadowBlur = 16;
+			ctx.fillStyle = '#ffffff';
+			ctx.fillText(info.title, W / 2, 118);
 			ctx.shadowBlur = 0;
 
-			// Horizontal divider
-			const divGrad = ctx.createLinearGradient(80, 0, 560, 0);
-			divGrad.addColorStop(0, 'rgba(255, 50, 80, 0)');
-			divGrad.addColorStop(0.2, 'rgba(255, 50, 80, 0.6)');
-			divGrad.addColorStop(0.5, 'rgba(255, 100, 120, 0.8)');
-			divGrad.addColorStop(0.8, 'rgba(255, 50, 80, 0.6)');
-			divGrad.addColorStop(1, 'rgba(255, 50, 80, 0)');
-			ctx.strokeStyle = divGrad;
-			ctx.lineWidth = 1.5;
-			ctx.beginPath();
-			ctx.moveTo(80, 100);
-			ctx.lineTo(560, 100);
-			ctx.stroke();
-
-			// Subtitle
-			ctx.fillStyle = 'rgba(255, 200, 210, 0.85)';
-			ctx.font = 'bold 22px "Impact", "Arial Black", sans-serif';
-			ctx.fillText(info.subtitle, 320, 128);
-
-			// Line 3 — smaller detail
-			ctx.fillStyle = 'rgba(180, 160, 200, 0.6)';
-			ctx.font = '600 14px "Arial", "Helvetica Neue", sans-serif';
-			ctx.fillText(info.line3, 320, 162);
+			// Subtitle — clean, spaced, accent color
+			ctx.font = '700 42px "Arial", "Helvetica Neue", sans-serif';
+			ctx.fillStyle = info.accent;
+			ctx.fillText(info.subtitle, W / 2, 258);
 
 			const texture = new THREE.CanvasTexture(canvas);
 			texture.colorSpace = THREE.SRGBColorSpace;
+			texture.anisotropy = 8;
 
 			const bannerGeo = new THREE.PlaneGeometry(bannerWidth, bannerHeight);
-			const bannerMat = new THREE.MeshStandardMaterial({
+			const bannerMat = new THREE.MeshBasicMaterial({
 				map: texture,
 				transparent: true,
-				opacity: 0.92,
-				emissive: new THREE.Color(0xff2233),
-				emissiveIntensity: 0.5,
-				roughness: 0.4,
-				metalness: 0.2,
-				side: THREE.DoubleSide
+				opacity: 0.97,
+				side: THREE.DoubleSide,
+				toneMapped: false // keep text legible regardless of arena exposure
 			});
 
 			const banner = new THREE.Mesh(bannerGeo, bannerMat);
@@ -395,8 +326,8 @@ export class ArenaRenderer {
 			banner.name = `banner_${i}`;
 			this.group.add(banner);
 
-			// Subtle glow light behind each banner
-			const bannerGlow = new THREE.PointLight(0xff3355, 0.3, 3);
+			// Subtle backing glow in the banner's accent color
+			const bannerGlow = new THREE.PointLight(new THREE.Color(info.accent).getHex(), 0.25, 3);
 			bannerGlow.position.set(x, info.yPos, z);
 			this.group.add(bannerGlow);
 		}
@@ -406,7 +337,7 @@ export class ArenaRenderer {
 
 	private buildBarrierRing(): void {
 		const r = this.ringRadius;
-		const barrierDist = r + 1.5;
+		const barrierDist = r + 1.125;
 
 		// Low metallic barricade panels around the ring (square layout)
 		const barricadeMat = new THREE.MeshStandardMaterial({
@@ -460,7 +391,7 @@ export class ArenaRenderer {
 
 	private buildGroundGlow(): void {
 		// Large ambient glow ring on the ground beneath the platform
-		const groundGlowGeo = new THREE.RingGeometry(4.0, 8, 48);
+		const groundGlowGeo = new THREE.RingGeometry(3.0, 6, 48);
 		const groundGlowMat = new THREE.MeshBasicMaterial({
 			color: 0x1122aa,
 			transparent: true,
@@ -476,7 +407,7 @@ export class ArenaRenderer {
 		this.group.add(groundGlow);
 
 		// Red accent ground ring (closer to platform)
-		const redGlowGeo = new THREE.RingGeometry(3.3, 3.8, 48);
+		const redGlowGeo = new THREE.RingGeometry(2.5, 2.85, 48);
 		const redGlowMat = new THREE.MeshBasicMaterial({
 			color: 0xff2233,
 			transparent: true,

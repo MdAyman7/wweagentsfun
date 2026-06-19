@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { Vec3 } from '../utils/types';
 
 /** Available camera angle presets for cinematography. */
@@ -10,6 +11,8 @@ export type CameraPreset =
 	| 'top_down'
 	| 'hard_cam'
 	| 'entrance';
+
+export type CameraMode = 'auto' | 'free';
 
 /** Defines offset from target and the look-at rule for a preset. */
 interface PresetConfig {
@@ -23,32 +26,32 @@ interface PresetConfig {
 
 const PRESET_CONFIGS: Record<CameraPreset, PresetConfig> = {
 	wide: {
-		offset: new THREE.Vector3(7, 5, 7),
+		offset: new THREE.Vector3(5, 4, 5),
 		tracksTarget: true
 	},
 	closeup: {
-		offset: new THREE.Vector3(1.0, 0.4, 1.3),
+		offset: new THREE.Vector3(0.9, 0.4, 1.2),
 		tracksTarget: true
 	},
 	over_shoulder: {
-		offset: new THREE.Vector3(-0.8, 1.0, -1.0),
+		offset: new THREE.Vector3(-0.7, 0.9, -0.9),
 		tracksTarget: true
 	},
 	crowd: {
-		offset: new THREE.Vector3(10, 3, 0),
+		offset: new THREE.Vector3(7, 2.5, 0),
 		tracksTarget: true
 	},
 	top_down: {
-		offset: new THREE.Vector3(0, 10, 0.01),
+		offset: new THREE.Vector3(0, 7, 0.01),
 		tracksTarget: true
 	},
 	hard_cam: {
-		offset: new THREE.Vector3(0, 3.5, 9),
+		offset: new THREE.Vector3(0, 2.5, 6),
 		tracksTarget: false,
 		fixedLookAt: new THREE.Vector3(0, 0.5, 0)
 	},
 	entrance: {
-		offset: new THREE.Vector3(0, 2, -10),
+		offset: new THREE.Vector3(0, 1.5, -7),
 		tracksTarget: false,
 		fixedLookAt: new THREE.Vector3(0, 0.5, 0)
 	}
@@ -57,6 +60,7 @@ const PRESET_CONFIGS: Record<CameraPreset, PresetConfig> = {
 /**
  * Camera system supporting multiple cinematic presets with smooth transitions.
  * Used by the cinematic system to cut between dramatic angles during the match.
+ * Supports a free-camera mode via OrbitControls for user-controlled viewing.
  */
 export class CameraRig {
 	readonly camera: THREE.PerspectiveCamera;
@@ -78,11 +82,59 @@ export class CameraRig {
 	/** Simple seeded-ish counter for deterministic shake noise */
 	private _shakePhase = 0;
 
+	/** Free-camera mode state */
+	private _mode: CameraMode = 'auto';
+	private _controls: OrbitControls | null = null;
+	private _transitioningToAuto = false;
+	private _transitionAlpha = 0;
+
 	constructor() {
 		this.camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 80);
 		this.camera.position.copy(PRESET_CONFIGS.wide.offset);
 		this.camera.lookAt(0, 0.5, 0);
 		this._currentLookAt.set(0, 0.5, 0);
+	}
+
+	/**
+	 * Create OrbitControls for free-camera mode. Must be called after
+	 * construction with the canvas element used for rendering.
+	 */
+	initControls(domElement: HTMLCanvasElement): void {
+		this._controls = new OrbitControls(this.camera, domElement);
+		this._controls.enableDamping = true;
+		this._controls.dampingFactor = 0.08;
+		this._controls.minDistance = 1.5;
+		this._controls.maxDistance = 18;
+		this._controls.maxPolarAngle = Math.PI / 2 - 0.05; // prevent going underground
+		this._controls.minPolarAngle = 0.1;
+		this._controls.target.set(0, 0.3, 0); // ring center
+		this._controls.enabled = false; // start in auto mode
+	}
+
+	/** Switch between auto (director-driven) and free (user-controlled) camera. */
+	setMode(mode: CameraMode): void {
+		if (mode === this._mode) return;
+		this._mode = mode;
+
+		if (mode === 'free') {
+			if (this._controls) {
+				// Sync OrbitControls target to current look-at so the transition is seamless
+				this._controls.target.copy(this._currentLookAt);
+				this._controls.enabled = true;
+			}
+			this._transitioningToAuto = false;
+		} else {
+			if (this._controls) {
+				this._controls.enabled = false;
+			}
+			// Smooth blend back to director-driven position
+			this._transitioningToAuto = true;
+			this._transitionAlpha = 0;
+		}
+	}
+
+	getMode(): CameraMode {
+		return this._mode;
 	}
 
 	/**
@@ -122,17 +174,40 @@ export class CameraRig {
 	 * @param dt Delta time in seconds.
 	 */
 	update(dt: number): void {
-		const t = 1 - Math.exp(-this.transitionSpeed * dt);
+		if (this._mode === 'free' && !this._transitioningToAuto) {
+			// Free mode: OrbitControls drives position/orientation
+			if (this._controls) {
+				this._controls.update();
+			}
+			this._applyShake(dt);
+			return;
+		}
 
-		// Lerp position
-		this._lerpPos.copy(this.camera.position).lerp(this.targetPosition, t);
-		this.camera.position.copy(this._lerpPos);
+		if (this._transitioningToAuto) {
+			// Smooth blend from current free-cam position back to auto target
+			this._transitionAlpha += dt * 2.0; // ~0.5 second blend
+			if (this._transitionAlpha >= 1.0) {
+				this._transitionAlpha = 1.0;
+				this._transitioningToAuto = false;
+			}
+			const t = 1 - Math.exp(-this.transitionSpeed * dt) * (1 - this._transitionAlpha);
+			this.camera.position.lerp(this.targetPosition, t);
+			this._currentLookAt.lerp(this.targetLookAt, t);
+		} else {
+			// Normal auto-mode lerp
+			const t = 1 - Math.exp(-this.transitionSpeed * dt);
+			this._lerpPos.copy(this.camera.position).lerp(this.targetPosition, t);
+			this.camera.position.copy(this._lerpPos);
+			this._lerpLookAt.copy(this._currentLookAt).lerp(this.targetLookAt, t);
+			this._currentLookAt.copy(this._lerpLookAt);
+		}
 
-		// Lerp look-at
-		this._lerpLookAt.copy(this._currentLookAt).lerp(this.targetLookAt, t);
-		this._currentLookAt.copy(this._lerpLookAt);
+		this._applyShake(dt);
+		this.camera.lookAt(this._currentLookAt);
+	}
 
-		// Apply camera shake offset
+	/** Apply camera shake offset (works in both auto and free modes). */
+	private _applyShake(dt: number): void {
 		if (this._shakeIntensity > 0.0001) {
 			this._shakePhase += dt * 120; // fast oscillation
 			const s = this._shakeIntensity;
@@ -150,8 +225,6 @@ export class CameraRig {
 				this._shakeIntensity = 0;
 			}
 		}
-
-		this.camera.lookAt(this._currentLookAt);
 	}
 
 	/**
@@ -184,5 +257,11 @@ export class CameraRig {
 	setAspect(aspect: number): void {
 		this.camera.aspect = aspect;
 		this.camera.updateProjectionMatrix();
+	}
+
+	/** Dispose OrbitControls and release event listeners. */
+	dispose(): void {
+		this._controls?.dispose();
+		this._controls = null;
 	}
 }

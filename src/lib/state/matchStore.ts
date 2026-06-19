@@ -1,4 +1,5 @@
 import { writable, derived, type Readable } from 'svelte/store';
+import type { CommentaryLine } from '$lib/match/commentary/Commentator';
 
 export interface WrestlerUIState {
 	entityId: number;
@@ -24,6 +25,10 @@ export interface MatchUIState {
 	elapsed: number;
 	wrestlers: WrestlerUIState[];
 	recentEvents: Array<{ frame: number; type: string; detail: string }>;
+	/** Broadcast-style commentary lines for the feed. */
+	commentaryLines: CommentaryLine[];
+	/** Whether match audio is muted. */
+	muted: boolean;
 	winner: number | null;
 	winMethod: string | null;
 	matchRating: number;
@@ -35,6 +40,8 @@ const DEFAULT_STATE: MatchUIState = {
 	elapsed: 0,
 	wrestlers: [],
 	recentEvents: [],
+	commentaryLines: [],
+	muted: false,
 	winner: null,
 	winMethod: null,
 	matchRating: 0
