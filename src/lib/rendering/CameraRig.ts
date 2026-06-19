@@ -31,11 +31,11 @@ const PRESET_CONFIGS: Record<CameraPreset, PresetConfig> = {
 		tracksTarget: true
 	},
 	closeup: {
-		offset: new THREE.Vector3(0.9, 0.4, 1.2),
+		offset: new THREE.Vector3(1.5, 0.8, 2.1),
 		tracksTarget: true
 	},
 	over_shoulder: {
-		offset: new THREE.Vector3(-0.7, 0.9, -0.9),
+		offset: new THREE.Vector3(-1.2, 1.2, -1.7),
 		tracksTarget: true
 	},
 	crowd: {

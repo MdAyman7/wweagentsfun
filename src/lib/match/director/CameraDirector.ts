@@ -104,25 +104,26 @@ export class CameraDirector {
 				};
 
 			case 'big_hit':
-				// Lower threshold — more hits get dramatic camera
-				if (event.damage >= 8) {
+				// Only genuinely big hits warrant a cut — otherwise the camera
+				// snaps in on every punch (reads as a jolt) and sits too close.
+				if (event.damage >= 16) {
 					return {
 						type: 'camera',
-						preset: event.damage >= 14 ? 'closeup' : 'over_shoulder',
+						preset: event.damage >= 24 ? 'closeup' : 'over_shoulder',
 						target: this.getAgentTarget(event.agentId, state),
-						transitionSpeed: 8.0,
-						hold: event.damage >= 14 ? 75 : 50
+						transitionSpeed: 5.0, // glide in, don't snap
+						hold: event.damage >= 24 ? 80 : 60
 					};
 				}
 				return null;
 
 			case 'reversal':
-				// Dramatic snap cut on reversal
+				// Dramatic cut on reversal — smoothed so it doesn't jolt.
 				return {
 					type: 'camera',
 					preset: 'over_shoulder',
 					target: this.getAgentTarget(event.agentId, state),
-					transitionSpeed: 10.0,
+					transitionSpeed: 6.0,
 					hold: 70
 				};
 
@@ -131,8 +132,8 @@ export class CameraDirector {
 					type: 'camera',
 					preset: 'closeup',
 					target: this.getAgentTarget(event.agentId, state),
-					transitionSpeed: 10.0,
-					hold: 50
+					transitionSpeed: 6.0,
+					hold: 55
 				};
 
 			case 'match_end':

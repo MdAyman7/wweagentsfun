@@ -18,14 +18,15 @@ interface ActiveEffect {
 	velocities: Float32Array;
 }
 
-/** How many particles to spawn per effect type. */
+/** How many particles to spawn per effect type. Kept modest to avoid
+ *  per-hit allocation spikes (each spawn builds a fresh buffer). */
 const PARTICLE_COUNTS: Record<EffectType, number> = {
-	impact: 60,
-	sweat: 10,
-	dust: 25,
+	impact: 24,
+	sweat: 8,
+	dust: 12,
 	flash: 1,
-	sparks: 40,
-	blood: 30
+	sparks: 18,
+	blood: 16
 };
 
 /** Effect lifetimes in seconds. */

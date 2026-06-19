@@ -613,27 +613,22 @@
 			}
 			if (effectsRenderer) {
 				const impactPos: Vec3 = [hit.positionX, 0.65, 0];
+				// Fewer spawns per hit — each spawn allocates a buffer, so keeping
+				// this lean avoids the per-impact GC stutter.
 				if (hit.critical) {
-					effectsRenderer.spawnEffect('impact', impactPos, 1.2);
-					effectsRenderer.spawnEffect('sparks', impactPos, 1.0);
+					effectsRenderer.spawnEffect('impact', impactPos, 1.0);
 					effectsRenderer.spawnEffect('flash', impactPos, 0.8);
-					effectsRenderer.spawnEffect('dust', impactPos, 0.6);
 				} else if (hit.reversed) {
-					effectsRenderer.spawnEffect('sparks', impactPos, 0.8);
-					effectsRenderer.spawnEffect('impact', impactPos, 0.5);
+					effectsRenderer.spawnEffect('sparks', impactPos, 0.7);
 				} else if (hit.blocked) {
 					effectsRenderer.spawnEffect('sparks', impactPos, 0.3);
 				} else {
 					effectsRenderer.spawnEffect('impact', impactPos, hit.intensity);
-					effectsRenderer.spawnEffect('dust', impactPos, hit.intensity * 0.4);
-				}
-				const defenderAgent = ms.agents.find((a) => a.id === hit.defenderId);
-				if (defenderAgent && !hit.blocked && defenderAgent.health / defenderAgent.maxHealth < 0.3) {
-					effectsRenderer.spawnEffect('blood', impactPos, hit.intensity);
 				}
 			}
 			if (cameraRig && !hit.blocked) {
-				const shakeIntensity = hit.critical ? 0.14 : hit.intensity * 0.07;
+				// Gentler shake so impacts read as punch, not a camera glitch.
+				const shakeIntensity = hit.critical ? 0.08 : hit.intensity * 0.045;
 				cameraRig.shake(shakeIntensity);
 			}
 			if (wrestlerRenderer && !hit.blocked) {
@@ -1116,7 +1111,8 @@
 
 	<!-- Controls: show during fight and celebration -->
 	{#if state.ceremonyPhase === 'fight' || state.ceremonyPhase === 'post_celebration'}
-		<div class="controls">
+		<!-- Camera switcher — bottom-left, clear of the top HUD -->
+		<div class="cam-dock">
 			<div class="cam-switcher glass">
 				<button class="cam-btn" class:active={state.cameraView === 'auto'} onclick={() => setCameraView('auto')} title="Director cuts">
 					<span class="cam-icon">🎬</span><span class="cam-label">AUTO</span>
@@ -1131,44 +1127,28 @@
 					<span class="cam-icon">🕹️</span><span class="cam-label">FREE</span>
 				</button>
 			</div>
-			<button
-				class="camera-toggle glass-btn"
-				onclick={toggleMute}
-				title="Toggle sound"
-			>
+		</div>
+
+		<!-- Sound / Exit / Help — bottom-right -->
+		<div class="controls">
+			<div class="help-anchor">
+				{#if state.showGuide}
+					<div class="help-tooltip glass-strong">
+						<div class="guide-items">
+							<div class="guide-item"><span class="guide-key font-mono">Left Drag</span><span class="guide-desc">Orbit</span></div>
+							<div class="guide-item"><span class="guide-key font-mono">Scroll</span><span class="guide-desc">Zoom</span></div>
+							<div class="guide-item"><span class="guide-key font-mono">Right Drag</span><span class="guide-desc">Pan</span></div>
+							<div class="guide-item"><span class="guide-key font-mono">C</span><span class="guide-desc">Cycle view</span></div>
+							<div class="guide-item"><span class="guide-key font-mono">M</span><span class="guide-desc">Mute sound</span></div>
+						</div>
+					</div>
+				{/if}
+				<button class="help-btn glass-btn" onclick={toggleGuide} title="Controls help">?</button>
+			</div>
+			<button class="camera-toggle glass-btn" onclick={toggleMute} title="Toggle sound (M)">
 				{state.muted ? 'SOUND OFF' : 'SOUND ON'}
 			</button>
 			<button class="exit-btn glass-btn" onclick={exitMatch}>EXIT</button>
-		</div>
-
-		<div class="help-anchor">
-			{#if state.showGuide}
-				<div class="help-tooltip glass-strong">
-					<div class="guide-items">
-						<div class="guide-item">
-							<span class="guide-key font-mono">Left Drag</span>
-							<span class="guide-desc">Orbit</span>
-						</div>
-						<div class="guide-item">
-							<span class="guide-key font-mono">Scroll</span>
-							<span class="guide-desc">Zoom</span>
-						</div>
-						<div class="guide-item">
-							<span class="guide-key font-mono">Right Drag</span>
-							<span class="guide-desc">Pan</span>
-						</div>
-						<div class="guide-item">
-							<span class="guide-key font-mono">C</span>
-							<span class="guide-desc">Cycle view</span>
-						</div>
-						<div class="guide-item">
-							<span class="guide-key font-mono">M</span>
-							<span class="guide-desc">Mute sound</span>
-						</div>
-					</div>
-				</div>
-			{/if}
-			<button class="help-btn glass-btn" onclick={toggleGuide} title="Camera controls">?</button>
 		</div>
 	{/if}
 
@@ -1234,12 +1214,20 @@
 
 	.controls {
 		position: absolute;
-		top: 1rem;
+		bottom: 1rem;
 		right: 1rem;
-		z-index: 10;
+		z-index: 12;
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+	}
+
+	/* Camera switcher dock — bottom-left, away from the top HUD */
+	.cam-dock {
+		position: absolute;
+		bottom: 1rem;
+		left: 1rem;
+		z-index: 12;
 	}
 
 	/* ─── Camera View Switcher ─────────────────────── */
@@ -1300,18 +1288,12 @@
 		font-size: 0.9rem;
 		letter-spacing: 0.08em;
 		padding: 0.5rem 1rem;
-		margin-right: 0.5rem;
 	}
 
 	.help-anchor {
-		position: absolute;
-		bottom: 1rem;
-		right: 1rem;
-		z-index: 12;
+		position: relative;
 		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: 0.5rem;
+		align-items: center;
 	}
 
 	.help-btn {
@@ -1329,8 +1311,12 @@
 	}
 
 	.help-tooltip {
+		position: absolute;
+		bottom: calc(100% + 0.5rem);
+		right: 0;
 		padding: 0.6rem 0.8rem;
 		border-radius: 8px;
+		white-space: nowrap;
 		animation: fade-in 0.2s ease-out;
 	}
 
