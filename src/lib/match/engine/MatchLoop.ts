@@ -86,6 +86,8 @@ export interface WrestlerInput {
 	personality: AgentPersonality;
 	/** Psychology archetype key (e.g. 'powerhouse', 'highflyer'). Falls back to 'balanced'. */
 	psychArchetype?: string;
+	/** Specific moveset/finisher key (e.g. 'roman_reigns'). Falls back to archetype set. */
+	movesetId?: string;
 	/** Direct PsychProfile override (takes precedence over psychArchetype). */
 	psychProfile?: PsychProfile;
 	color: string;
@@ -1759,6 +1761,10 @@ function mapFSMStateToPhase(stateId: FighterStateId): AgentPhase {
  * Falls back to 'allrounder_a' if no mapping exists.
  */
 function resolveMovesetId(input: WrestlerInput): string {
+	// Prefer an explicit moveset (real wrestler finishers) when provided.
+	if (input.movesetId && input.movesetId.trim().length > 0) {
+		return input.movesetId;
+	}
 	const archetype = input.psychArchetype?.toLowerCase() ?? '';
 	switch (archetype) {
 		case 'powerhouse': return 'powerhouse_a';

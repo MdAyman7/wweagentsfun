@@ -28,12 +28,27 @@
 
 	// Read config from uiStore (no query params)
 	const config = get(uiState).matchConfig;
-	const wrestler1Id = config.wrestler1Id ?? 'iron_mike';
-	const wrestler2Id = config.wrestler2Id ?? 'phoenix_blade';
+	const wrestler1Id = config.wrestler1Id ?? 'roman_reigns';
+	const wrestler2Id = config.wrestler2Id ?? 'cody_rhodes';
 	const seed = config.seed;
 	const matchNumber = (seed % 9999) + 1;
 
-	let state = $state<MatchUIState>({
+	/**
+	 * The single reactive view object. Mirrors the imperative ceremony loop
+	 * state (ceremonyPhase/phaseTimer/etc) so the overlay markup actually
+	 * re-renders — this component can only hold ONE $state rune (svelte-check
+	 * bug with multiple), so everything the template needs lives here.
+	 */
+	interface ViewState extends MatchUIState {
+		ceremonyPhase: CeremonyPhase;
+		phaseTimer: number;
+		introWrestlerIdx: number;
+		countdownNumber: number;
+		cameraView: CameraView;
+		showGuide: boolean;
+	}
+
+	let state = $state<ViewState>({
 		phase: 'pre',
 		matchType: 'singles',
 		elapsed: 0,
@@ -43,7 +58,13 @@
 		muted: false,
 		winner: null,
 		winMethod: null,
-		matchRating: 0
+		matchRating: 0,
+		ceremonyPhase: 'intro_p1',
+		phaseTimer: 0,
+		introWrestlerIdx: 0,
+		countdownNumber: 3,
+		cameraView: 'auto',
+		showGuide: false
 	});
 
 	let sceneManager: SceneManager | null = null;
@@ -81,10 +102,14 @@
 	let pendingKnockback: [{ direction: number; intensity: number } | null, { direction: number; intensity: number } | null] = [null, null];
 
 	/**
-	 * Whether user has free camera control enabled (default: on).
-	 * Not wrapped in $state due to svelte-check bug with multiple $state calls.
+	 * Active viewing angle. 'auto' = director cuts, 'hard' = broadcast side cam,
+	 * 'drone' = overhead ref-drone follow, 'free' = user orbit. Mirrored into
+	 * the reactive `state` each frame for the on-screen switcher.
 	 */
-	let freeCam = true;
+	type CameraView = 'auto' | 'hard' | 'drone' | 'free';
+	let cameraView: CameraView = 'auto';
+	/** Derived helper: is the user freely orbiting? */
+	function isFreeCam(): boolean { return cameraView === 'free'; }
 	/** Whether the camera help tooltip is visible */
 	let showGuide = false;
 
@@ -106,9 +131,11 @@
 	let ceremonyPhase: CeremonyPhase = 'intro_p1';
 	let phaseTimer = 0;
 
-	const INTRO_DURATION = 7000;     // 7 seconds per wrestler intro
+	const INTRO_DURATION = 5000;     // per-wrestler intro
 	const COUNTDOWN_DURATION = 4000; // 3-2-1-FIGHT
 	const POST_CELEBRATION_DELAY = 8000; // 8 seconds of post-match celebration
+	/** Camera focus height for intros — chest level, not the mat (ringHeight). */
+	const INTRO_FOCUS_Y = 0.95;
 
 	/** Countdown number to display (3, 2, 1, 0=FIGHT) */
 	let countdownNumber = 3;
@@ -144,9 +171,23 @@
 		return 'medium';
 	}
 
-	function toggleCameraMode() {
-		freeCam = !freeCam;
-		cameraRig?.setMode(freeCam ? 'free' : 'auto');
+	const CAMERA_VIEWS: CameraView[] = ['auto', 'hard', 'drone', 'free'];
+
+	function setCameraView(view: CameraView) {
+		cameraView = view;
+		state.cameraView = view; // immediate UI feedback
+		if (!cameraRig) return;
+		cameraRig.setMode(view === 'free' ? 'free' : 'auto');
+		// 'hard' is a fixed broadcast angle; lock it now. 'drone'/'auto' update per frame.
+		if (view === 'hard') {
+			cameraRig.setPreset('hard_cam');
+			cameraRig.setTransitionSpeed(3.0);
+		}
+	}
+
+	function cycleCameraView() {
+		const i = CAMERA_VIEWS.indexOf(cameraView);
+		setCameraView(CAMERA_VIEWS[(i + 1) % CAMERA_VIEWS.length]);
 	}
 
 	function toggleGuide() {
@@ -156,7 +197,7 @@
 	function onKeyDown(event: KeyboardEvent) {
 		soundEngine?.resume(); // unlock audio on first user gesture if still suspended
 		if (event.key === 'c' || event.key === 'C') {
-			toggleCameraMode();
+			cycleCameraView();
 		}
 		if (event.key === 'm' || event.key === 'M') {
 			toggleMute();
@@ -190,7 +231,7 @@
 		cameraRig.initControls(canvas);
 		// Start with auto camera for intro cinematics
 		cameraRig.setMode('auto');
-		freeCam = false;
+		cameraView = 'auto';
 
 		// 2. Ring
 		ringRenderer = new RingRenderer(sceneManager.scene);
@@ -212,6 +253,7 @@
 			stamina: w1Def.stats.stamina,
 			personality: PERSONALITY_MAP[w1Def.personalityId] ?? PERSONALITY_MAP.balanced,
 			psychArchetype: w1Def.personalityId ?? 'balanced',
+			movesetId: w1Def.movesetId,
 			color: w1Def.appearance.primaryColor,
 			height: w1Def.appearance.height,
 			build: mapBuild(w1Def.appearance.build)
@@ -224,6 +266,7 @@
 			stamina: w2Def.stats.stamina,
 			personality: PERSONALITY_MAP[w2Def.personalityId] ?? PERSONALITY_MAP.balanced,
 			psychArchetype: w2Def.personalityId ?? 'balanced',
+			movesetId: w2Def.movesetId,
 			color: w2Def.appearance.primaryColor,
 			height: w2Def.appearance.height,
 			build: mapBuild(w2Def.appearance.build)
@@ -278,7 +321,8 @@
 		ceremonyPhase = 'intro_p1';
 		introWrestlerIdx = 0;
 		phaseTimer = 0;
-		cameraRig.setPreset('closeup', [-2, ringHeight, 0]);
+		// Frame the wrestler's upper body, not the feet (ringHeight is the mat level).
+		cameraRig.setPreset('closeup', [-2, INTRO_FOCUS_Y, 0]);
 		cameraRig.setTransitionSpeed(2.0);
 
 		// 11. Initial render
@@ -291,6 +335,16 @@
 	}
 
 	// ─── Main Frame Loop ────────────────────────────────────────────
+
+	/** Copy imperative ceremony state into the reactive view so overlays update. */
+	function mirrorCeremony() {
+		state.ceremonyPhase = ceremonyPhase;
+		state.phaseTimer = phaseTimer;
+		state.introWrestlerIdx = introWrestlerIdx;
+		state.countdownNumber = countdownNumber;
+		state.cameraView = cameraView;
+		state.showGuide = showGuide;
+	}
 
 	function frame(timestamp: number) {
 		if (!sceneManager || !cameraRig || !wrestlerRenderer) return;
@@ -317,11 +371,13 @@
 				break;
 			case 'post_result':
 				// Stop the animation loop — result popup is showing
+				mirrorCeremony();
 				syncMatchToUI();
 				return;
 		}
 
 		// Common render path (all phases except post_result)
+		mirrorCeremony();
 		updateAmbience(dtSeconds);
 		wrestlerRenderer!.update(dtSeconds);
 		if (refereeRenderer) refereeRenderer.update(dtSeconds);
@@ -348,7 +404,7 @@
 		const camDist = 2.0;
 		const camX = focusX + Math.sin(orbitAngle) * camDist;
 		const camZ = Math.cos(orbitAngle) * camDist;
-		cameraRig.setPreset('closeup', [focusX, ringHeight, 0]);
+		cameraRig.setPreset('closeup', [focusX, INTRO_FOCUS_Y, 0]);
 
 		// Transition to next phase
 		if (phaseTimer >= INTRO_DURATION) {
@@ -356,7 +412,7 @@
 			if (ceremonyPhase === 'intro_p1') {
 				ceremonyPhase = 'intro_p2';
 				introWrestlerIdx = 1;
-				cameraRig.setPreset('closeup', [2, ringHeight, 0]);
+				cameraRig.setPreset('closeup', [2, INTRO_FOCUS_Y, 0]);
 				cameraRig.setTransitionSpeed(3.0);
 			} else {
 				// Move to countdown
@@ -396,9 +452,8 @@
 		if (phaseTimer >= COUNTDOWN_DURATION) {
 			phaseTimer = 0;
 			ceremonyPhase = 'fight';
-			// Switch to user-controlled free camera
-			freeCam = true;
-			cameraRig?.setMode('free');
+			// Hand the fight to the director's dynamic cuts (WWE-style broadcast).
+			setCameraView('auto');
 
 			// Ring the bell — the crowd erupts.
 			soundEngine?.resume();
@@ -683,7 +738,8 @@
 		for (const cue of cues) {
 			switch (cue.type) {
 				case 'camera':
-					if (cameraRig && !freeCam) {
+					// Director cuts only apply in 'auto'; locked views ignore them.
+					if (cameraRig && cameraView === 'auto') {
 						cameraRig.setPreset(cue.preset, cue.target);
 						cameraRig.setTransitionSpeed(cue.transitionSpeed);
 					}
@@ -769,6 +825,7 @@
 		const phase = ms.running ? 'live' : 'post';
 
 		state = {
+			...state,
 			phase,
 			matchType: 'singles',
 			elapsed: ms.elapsed,
@@ -898,6 +955,14 @@
 			pendingKnockback[i as 0 | 1] = null;
 		}
 
+		// Drone view: overhead camera that follows the midpoint of the action.
+		if (cameraView === 'drone' && cameraRig && wrestlerPositions.length >= 2) {
+			const mx = (wrestlerPositions[0][0] + wrestlerPositions[1][0]) * 0.5;
+			const mz = (wrestlerPositions[0][2] + wrestlerPositions[1][2]) * 0.5;
+			cameraRig.setPreset('drone', [mx, 0.8, mz]);
+			cameraRig.setTransitionSpeed(3.5);
+		}
+
 		if (refereeRenderer) {
 			refereeRenderer.updatePosition(wrestlerPositions);
 			const anyKnockdown = ms.agents.some((a) => a.phase === 'knockdown' || a.phase === 'getting_up');
@@ -957,7 +1022,7 @@
 	</div>
 
 	<!-- HUD: only show during fight and post phases -->
-	{#if ceremonyPhase === 'fight' || ceremonyPhase === 'post_celebration' || ceremonyPhase === 'post_result'}
+	{#if state.ceremonyPhase === 'fight' || state.ceremonyPhase === 'post_celebration' || state.ceremonyPhase === 'post_result'}
 		<div class="overlay">
 			<HUD wrestlers={state.wrestlers} matchTime={state.elapsed} {matchNumber}
 				wrestler1Name={w1Def.name}
@@ -970,11 +1035,11 @@
 	{/if}
 
 	<!-- ─── Intro Overlay ──────────────────────────────────────────── -->
-	{#if ceremonyPhase === 'intro_p1' || ceremonyPhase === 'intro_p2'}
-		{@const def = introDefs[introWrestlerIdx]}
-		{@const progress = Math.min(phaseTimer / INTRO_DURATION, 1)}
-		<div class="intro-overlay" class:intro-left={introWrestlerIdx === 0} class:intro-right={introWrestlerIdx === 1}>
-			<div class="intro-card" class:card-enter={phaseTimer < 800}>
+	{#if state.ceremonyPhase === 'intro_p1' || state.ceremonyPhase === 'intro_p2'}
+		{@const def = introDefs[state.introWrestlerIdx]}
+		{@const progress = Math.min(state.phaseTimer / INTRO_DURATION, 1)}
+		<div class="intro-overlay" class:intro-left={state.introWrestlerIdx === 0} class:intro-right={state.introWrestlerIdx === 1}>
+			<div class="intro-card" class:card-enter={state.phaseTimer < 800}>
 				<div class="intro-label font-display">INTRODUCING</div>
 				<div class="intro-name font-display">{def.name}</div>
 				<div class="intro-nickname font-display">"{def.nickname}"</div>
@@ -1024,11 +1089,11 @@
 	{/if}
 
 	<!-- ─── Countdown Overlay ──────────────────────────────────────── -->
-	{#if ceremonyPhase === 'countdown'}
+	{#if state.ceremonyPhase === 'countdown'}
 		<div class="countdown-overlay">
-			{#if countdownNumber > 0}
+			{#if state.countdownNumber > 0}
 				<div class="countdown-number font-display" class:countdown-pop={true}>
-					{countdownNumber}
+					{state.countdownNumber}
 				</div>
 			{:else}
 				<div class="countdown-fight font-display">FIGHT!</div>
@@ -1037,7 +1102,7 @@
 	{/if}
 
 	<!-- ─── Post-Match Winner Banner ─────────────────────────────── -->
-	{#if ceremonyPhase === 'post_celebration' && state.winner !== null}
+	{#if state.ceremonyPhase === 'post_celebration' && state.winner !== null}
 		<div class="winner-banner">
 			<div class="winner-banner-label font-display">YOUR WINNER</div>
 			<div class="winner-banner-name font-display">
@@ -1050,15 +1115,22 @@
 	{/if}
 
 	<!-- Controls: show during fight and celebration -->
-	{#if ceremonyPhase === 'fight' || ceremonyPhase === 'post_celebration'}
+	{#if state.ceremonyPhase === 'fight' || state.ceremonyPhase === 'post_celebration'}
 		<div class="controls">
-			<button
-				class="camera-toggle glass-btn"
-				onclick={toggleCameraMode}
-				title="Toggle camera mode (C)"
-			>
-				{!freeCam ? 'FREE CAM' : 'AUTO CAM'}
-			</button>
+			<div class="cam-switcher glass">
+				<button class="cam-btn" class:active={state.cameraView === 'auto'} onclick={() => setCameraView('auto')} title="Director cuts">
+					<span class="cam-icon">🎬</span><span class="cam-label">AUTO</span>
+				</button>
+				<button class="cam-btn" class:active={state.cameraView === 'hard'} onclick={() => setCameraView('hard')} title="Broadcast hard cam">
+					<span class="cam-icon">📺</span><span class="cam-label">HARD</span>
+				</button>
+				<button class="cam-btn" class:active={state.cameraView === 'drone'} onclick={() => setCameraView('drone')} title="Overhead drone follow">
+					<span class="cam-icon">🚁</span><span class="cam-label">DRONE</span>
+				</button>
+				<button class="cam-btn" class:active={state.cameraView === 'free'} onclick={() => setCameraView('free')} title="Free orbit (drag to look around)">
+					<span class="cam-icon">🕹️</span><span class="cam-label">FREE</span>
+				</button>
+			</div>
 			<button
 				class="camera-toggle glass-btn"
 				onclick={toggleMute}
@@ -1070,7 +1142,7 @@
 		</div>
 
 		<div class="help-anchor">
-			{#if showGuide}
+			{#if state.showGuide}
 				<div class="help-tooltip glass-strong">
 					<div class="guide-items">
 						<div class="guide-item">
@@ -1087,7 +1159,11 @@
 						</div>
 						<div class="guide-item">
 							<span class="guide-key font-mono">C</span>
-							<span class="guide-desc">Auto camera</span>
+							<span class="guide-desc">Cycle view</span>
+						</div>
+						<div class="guide-item">
+							<span class="guide-key font-mono">M</span>
+							<span class="guide-desc">Mute sound</span>
 						</div>
 					</div>
 				</div>
@@ -1097,7 +1173,7 @@
 	{/if}
 
 	<!-- Result popup -->
-	{#if ceremonyPhase === 'post_result' && state.winMethod}
+	{#if state.ceremonyPhase === 'post_result' && state.winMethod}
 		<div class="match-result">
 			<div class="result-card glass-strong">
 				<h2 class="result-title font-display">MATCH OVER</h2>
@@ -1161,6 +1237,55 @@
 		top: 1rem;
 		right: 1rem;
 		z-index: 10;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	/* ─── Camera View Switcher ─────────────────────── */
+	.cam-switcher {
+		display: flex;
+		gap: 2px;
+		padding: 3px;
+		border-radius: var(--radius-md, 10px);
+	}
+
+	.cam-btn {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1px;
+		padding: 0.3rem 0.5rem;
+		border: 1px solid transparent;
+		border-radius: 7px;
+		background: transparent;
+		color: var(--text-secondary, #aab);
+		cursor: pointer;
+		transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+	}
+
+	.cam-btn:hover {
+		background: rgba(255, 255, 255, 0.06);
+		color: #fff;
+	}
+
+	.cam-btn.active {
+		background: rgba(255, 60, 90, 0.18);
+		border-color: rgba(255, 60, 90, 0.55);
+		color: #fff;
+		box-shadow: 0 0 12px rgba(255, 60, 90, 0.25);
+	}
+
+	.cam-icon {
+		font-size: 1.05rem;
+		line-height: 1;
+	}
+
+	.cam-label {
+		font-family: var(--font-mono, monospace);
+		font-size: 0.5rem;
+		letter-spacing: 0.08em;
+		font-weight: 700;
 	}
 
 	.exit-btn {

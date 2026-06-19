@@ -20,7 +20,7 @@
 		technician: 'Technician',
 		brawler: 'Brawler',
 		psychologist: 'Psychologist',
-		balanced: 'Lucha Libre'
+		balanced: 'All-Rounder'
 	};
 
 	function toggleWrestler(id: string) {
@@ -86,6 +86,7 @@
 					class:selected={isSelected}
 					style="
 						--fighter-color: {wrestler.appearance.primaryColor};
+						--fighter-color2: {wrestler.appearance.secondaryColor};
 						--fighter-color-glow: {wrestler.appearance.primaryColor}66;
 						animation-delay: {i * 0.05}s;
 					"
@@ -98,10 +99,17 @@
 						</div>
 					{/if}
 
-					<!-- Avatar -->
+					<!-- Avatar: stylized fighter portrait tinted in the wrestler's colors -->
 					<div class="avatar-ring">
-						<div class="avatar" style="background: {wrestler.appearance.primaryColor}">
-							<span class="avatar-initial">{wrestler.name[0]}</span>
+						<div class="avatar">
+							<svg class="avatar-fig" viewBox="0 0 64 64" aria-hidden="true">
+								<circle class="fig-head" cx="32" cy="18.5" r="9.5" />
+								<path
+									class="fig-body"
+									d="M12 60 Q13 39 24 33.5 Q28 31 32 31 Q36 31 40 33.5 Q51 39 52 60 Z"
+								/>
+							</svg>
+							<span class="avatar-monogram font-mono">{wrestler.name[0]}</span>
 						</div>
 					</div>
 
@@ -332,19 +340,43 @@
 	}
 
 	.avatar {
+		position: relative;
 		width: 100%;
 		height: 100%;
 		border-radius: 50%;
+		overflow: hidden;
 		display: flex;
-		align-items: center;
+		align-items: flex-end;
 		justify-content: center;
+		background:
+			radial-gradient(circle at 50% 22%, color-mix(in srgb, var(--fighter-color) 80%, #fff 18%), transparent 55%),
+			linear-gradient(160deg, var(--fighter-color), color-mix(in srgb, var(--fighter-color) 45%, #05060c));
 	}
 
-	.avatar-initial {
-		font-family: var(--font-display);
-		font-size: 2rem;
-		color: white;
-		text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+	.avatar-fig {
+		width: 100%;
+		height: 100%;
+		display: block;
+	}
+
+	.fig-head,
+	.fig-body {
+		fill: var(--fighter-color2, #ffffff);
+		stroke: rgba(0, 0, 0, 0.35);
+		stroke-width: 1.1;
+		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+	}
+
+	/* Small initial tucked in the corner — a nameplate, not the whole portrait */
+	.avatar-monogram {
+		position: absolute;
+		right: 4px;
+		bottom: 2px;
+		font-size: 0.6rem;
+		font-weight: 700;
+		color: #fff;
+		opacity: 0.75;
+		text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 	}
 
 	/* Info */

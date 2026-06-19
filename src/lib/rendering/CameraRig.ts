@@ -10,7 +10,8 @@ export type CameraPreset =
 	| 'crowd'
 	| 'top_down'
 	| 'hard_cam'
-	| 'entrance';
+	| 'entrance'
+	| 'drone';
 
 export type CameraMode = 'auto' | 'free';
 
@@ -54,6 +55,11 @@ const PRESET_CONFIGS: Record<CameraPreset, PresetConfig> = {
 		offset: new THREE.Vector3(0, 1.5, -7),
 		tracksTarget: false,
 		fixedLookAt: new THREE.Vector3(0, 0.5, 0)
+	},
+	// High three-quarter overhead "ref-drone" shot that follows the action.
+	drone: {
+		offset: new THREE.Vector3(0.4, 4.6, 3.2),
+		tracksTarget: true
 	}
 };
 
