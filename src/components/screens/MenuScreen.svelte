@@ -84,10 +84,6 @@
 			</button>
 		{/each}
 	</nav>
-
-	<footer class="footer">
-		<span>THREE.js · Procedural Audio · Reactive Crowd</span>
-	</footer>
 </div>
 
 <style>
@@ -365,13 +361,4 @@
 		margin-left: 0.6rem;
 	}
 
-	/* ─── Footer ─────────────────────────────────── */
-	.footer {
-		position: absolute;
-		bottom: 1.5rem;
-		color: var(--text-muted);
-		font-size: 0.72rem;
-		letter-spacing: 0.08em;
-		z-index: 1;
-	}
 </style>
