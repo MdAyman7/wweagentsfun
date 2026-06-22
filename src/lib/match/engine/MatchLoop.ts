@@ -159,6 +159,8 @@ export class MatchLoop {
 	private readonly emotionMachine: EmotionMachine;
 	private readonly agents: Map<string, Agent>;
 	private readonly decisionTimers: Map<string, number>;
+	/** Ticks remaining where an agent is actively evading (auto-approach paused). */
+	private readonly evadeTicks: Map<string, number> = new Map();
 	private readonly comebackStartTicks: Map<string, number>;
 
 	/** Cached effective modifiers per agent, recomputed each psychology eval */
@@ -497,7 +499,7 @@ export class MatchLoop {
 			// Movement uses a shorter interval so fighters re-evaluate quickly while
 			// closing distance. Combat actions use the full interval.
 			const speedMod = mods ? mods.speed : 1.0;
-			const baseInterval = (action.type === 'move' || action.type === 'idle')
+			const baseInterval = (action.type === 'move' || action.type === 'idle' || action.type === 'dodge')
 				? MOVE_DECISION_INTERVAL
 				: DECISION_INTERVAL;
 			const adjustedInterval = Math.round(baseInterval / speedMod);
@@ -509,6 +511,19 @@ export class MatchLoop {
 					if (mover) {
 						mover.moveTowardOpponent(opponent.positionX);
 						fsm.pushEvent({ type: 'REQUEST_MOVE', targetX: opponent.positionX });
+					}
+					break;
+				}
+
+				case 'dodge': {
+					// Slip away from a telegraphed strike so it whiffs, then re-engage.
+					// The evade window pauses auto-approach so the back-step lands.
+					if (mover) {
+						const sign = agentState.positionX <= opponent.positionX ? -1 : 1;
+						const targetX = agentState.positionX + sign * 0.95;
+						mover.moveToward(targetX);
+						fsm.pushEvent({ type: 'REQUEST_MOVE', targetX });
+						this.evadeTicks.set(agentState.id, 14);
 					}
 					break;
 				}
@@ -957,11 +972,16 @@ export class MatchLoop {
 			// Update facing direction (always face opponent)
 			mover.updateFacing(opponent.positionX);
 
+			// Evade window: while actively dodging, don't auto-approach — let the
+			// back-step create real separation before re-engaging.
+			const evading = (this.evadeTicks.get(agent.id) ?? 0) > 0;
+			if (evading) this.evadeTicks.set(agent.id, (this.evadeTicks.get(agent.id) ?? 0) - 1);
+
 			// Auto-approach: fighters in IDLE/MOVING should always be closing distance.
 			// Continuously refresh the movement target so fighters track the opponent
 			// and don't stall at a static position when the opponent moves.
 			const fsmState = fsm.stateId;
-			if (fsmState === 'IDLE' || fsmState === 'MOVING') {
+			if (!evading && (fsmState === 'IDLE' || fsmState === 'MOVING')) {
 				const distance = Math.abs(agent.positionX - opponent.positionX);
 				if (distance > mover.range * 0.7) {
 					// Always refresh target toward opponent (track their movement)
@@ -1157,6 +1177,11 @@ export class MatchLoop {
 			// Apply damage reduction if defender is blocking
 			const isBlocking = defender.phase === 'blocking';
 
+			// Did the defender slip out of range (e.g. a dodge)? Short-range
+			// strikes then whiff — footwork actually evades.
+			const impactDistance = Math.abs(attacker.positionX - defender.positionX);
+			const outOfRange = impactDistance > move.hitbox.range + 0.35;
+
 			// Resolve the combat with psychology modifiers
 			const result = this.combatResolver.resolve(
 				attacker, defender, move, attackerMods, defenderMods
@@ -1165,7 +1190,7 @@ export class MatchLoop {
 			// Get the combo tracker for this attacker
 			const comboTracker = this.comboTrackers.get(attacker.id);
 
-			if (result.reversed) {
+			if (result.reversed && !outOfRange) {
 				// ── Reversal: attacker gets stunned, defender gains momentum ──
 				const stunFrames = result.stunFrames;
 				this.state = matchReducer(this.state, {
@@ -1217,7 +1242,7 @@ export class MatchLoop {
 					blocked: false,
 					intensity: clamp(result.reversalDamage / 20, 0.3, 1.0)
 				});
-			} else if (result.hit) {
+			} else if (result.hit && !outOfRange) {
 				// ── Hit confirmed — apply damage, stun, and knockback ──
 
 				// Check combo system for damage scaling

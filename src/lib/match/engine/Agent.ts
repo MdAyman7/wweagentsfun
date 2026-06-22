@@ -8,7 +8,7 @@ import { SeededRandom } from '../../utils/random';
  * Available actions an agent can choose from each decision tick.
  */
 export interface AgentAction {
-	type: 'attack' | 'block' | 'idle' | 'mistake' | 'move' | 'taunt';
+	type: 'attack' | 'block' | 'idle' | 'mistake' | 'move' | 'taunt' | 'dodge';
 	moveId?: string;
 }
 
@@ -115,28 +115,32 @@ export class Agent {
 			}
 		}
 
-		// ── 3. Should we block? ──
-		// Only block when close enough for the opponent to actually hit us
-		const opponentAttacking = opponent.phase === 'windup' || opponent.phase === 'active';
+		// ── 3. Defensive reaction — read the opponent, then evade or block ──
+		// A telegraphed windup can be slipped with footwork (dodge); once the
+		// strike is active it's too late to move, but a block can still absorb it.
+		// Reflexes (reversalSkill) and composure (low aggression) drive evasion,
+		// so technicians weave and brawlers tank — distinct body language.
 		const defenseWeight = mods ? mods.defense : 1.0;
-		let blockChance = 0;
+		const oppWindup = opponent.phase === 'windup';
+		const oppActive = opponent.phase === 'active';
 
-		// Only consider blocking when opponent is close and threatening
-		if (opponentAttacking && ctx.distance < 3.0) {
-			blockChance = 0.20 * defenseWeight;
-			if (healthPct < 0.3) blockChance += 0.10 * defenseWeight;
-		} else if (ctx.distance < 2.0) {
-			// Small passive block chance when very close
-			blockChance = 0.03 * (1 - p.aggression) * defenseWeight;
-			if (healthPct < 0.3) blockChance += 0.05 * defenseWeight;
-		}
-		if (staminaPct < 0.15) blockChance += 0.05;
-
-		// Comeback agents don't block — full aggression
-		if (self.comebackActive) blockChance = 0.01;
-
-		if (this.rng.chance(blockChance)) {
-			return { type: 'block' };
+		if (!self.comebackActive && (oppWindup || oppActive) && ctx.distance < 2.8) {
+			// DODGE — slip away from a telegraphed strike (only on windup, with gas).
+			if (oppWindup && staminaPct > 0.12) {
+				let dodge = (0.10 + p.reversalSkill * 0.40 + (1 - p.aggression) * 0.15) * defenseWeight;
+				if (healthPct < 0.35) dodge += 0.12; // self-preservation when hurt
+				if (this.rng.chance(dodge)) return { type: 'dodge' };
+			}
+			// BLOCK — raise the guard against the incoming hit.
+			let block = (0.16 + (1 - p.aggression) * 0.20) * defenseWeight;
+			if (healthPct < 0.3) block += 0.12 * defenseWeight;
+			if (staminaPct < 0.15) block += 0.06;
+			if (this.rng.chance(block)) return { type: 'block' };
+		} else if (!self.comebackActive && ctx.distance < 1.6) {
+			// Small passive guard when right on top of each other.
+			let block = 0.03 * (1 - p.aggression) * defenseWeight;
+			if (healthPct < 0.3) block += 0.05 * defenseWeight;
+			if (this.rng.chance(block)) return { type: 'block' };
 		}
 
 		// ── 4. Should we idle (rest)? ──
