@@ -552,10 +552,13 @@ export class WrestlerRenderer {
 				data.group.position.z += pose.rootDeltaZ;
 			}
 
-			// Floor clamp — never let the stickman sink below the ring surface (0.3)
+			// Floor clamp first — never sink below the ring surface (0.3) ...
 			if (data.group.position.y < 0.3) {
 				data.group.position.y = 0.3;
 			}
+
+			// ... then lift by the jump arc so leaps rise above the ring.
+			data.group.position.y += data.animator.airHeight;
 		}
 	}
 

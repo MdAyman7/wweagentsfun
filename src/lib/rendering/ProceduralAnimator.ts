@@ -218,6 +218,23 @@ const TAUNT_PUMP = {
 	amplitude: 0.3, speed: 4.5, bodyPump: 0.06
 };
 
+// ─── Jump Physics ────────────────────────────────────────────────────
+
+/** Downward acceleration (world units / s²) for the jump arc. */
+const JUMP_GRAVITY = 16;
+/** Extra-floaty leaps get a stronger launch. */
+const BIG_AIR_MOVES = new Set([
+	'moonsault', 'frog_splash', 'swanton_bomb', 'senton_630',
+	'shooting_star_press', 'crossbody', 'senton_bomb', 'phoenix_splash'
+]);
+
+/** Initial upward velocity for a leaping move. */
+function jumpPowerFor(moveId: string | null, category: string | null): number {
+	if (category === 'aerial') return BIG_AIR_MOVES.has(moveId ?? '') ? 5.4 : 4.6;
+	if (moveId === 'superman_punch' || moveId === 'bicycle_kick') return 3.6;
+	return 0;
+}
+
 // ─── Transition Speed Table ──────────────────────────────────────────
 
 /**
@@ -279,6 +296,12 @@ export class ProceduralAnimator {
 	/** Normalized stamina (1 = fresh, 0 = exhausted) for fatigue posture. */
 	private _stamina = 1;
 
+	/** Jump physics: current height above the ground and vertical velocity. */
+	private _airY = 0;
+	private _airVel = 0;
+	/** Previous phase, for detecting the launch frame of a leaping move. */
+	private _prevPhase = '';
+
 	/** Knockback tilt — decays over time. */
 	private _knockbackTiltZ = 0;
 	private _knockbackTiltDecay = 6.0;
@@ -290,6 +313,9 @@ export class ProceduralAnimator {
 	private _command: AnimationCommand | null = null;
 
 	get state(): AnimStateId { return this._state; }
+
+	/** Current jump height above the ground (world units, 0 when grounded). */
+	get airHeight(): number { return this._airY; }
 
 	/** Get the finisher controller for external access. */
 	get finisherController(): FinisherAnimController { return this._finisherCtrl; }
@@ -324,6 +350,14 @@ export class ProceduralAnimator {
 		};
 		const animState = stateMap[cmd.phase] ?? 'stance';
 		this.setState(animState);
+
+		// Launch a real jump on the active frame of a leaping move (crouch on
+		// windup → leave the ground on active → gravity brings them back down).
+		if (cmd.phase === 'active' && this._prevPhase !== 'active' && this._airY <= 0.001) {
+			const power = jumpPowerFor(cmd.moveId, cmd.moveCategory);
+			if (power > 0) this._airVel = power;
+		}
+		this._prevPhase = cmd.phase;
 	}
 
 	setVelocity(v: number): void {
@@ -340,6 +374,17 @@ export class ProceduralAnimator {
 	 */
 	update(dt: number): ProceduralPose {
 		this._time += dt;
+
+		// Integrate the jump arc under gravity; lands and rests at ground level.
+		if (this._airVel !== 0 || this._airY > 0) {
+			this._airVel -= JUMP_GRAVITY * dt;
+			this._airY += this._airVel * dt;
+			if (this._airY <= 0) {
+				this._airY = 0;
+				this._airVel = 0;
+			}
+		}
+
 		const cmd = this._command;
 
 		// ── Check if finisher controller should take over ──
