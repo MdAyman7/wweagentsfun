@@ -22,13 +22,13 @@ export class MovePoseEvaluator {
 	 * Evaluate the combat pose for the current animation command.
 	 * Returns a pose for Layer 2 (COMBAT_UPPER) and the layer weight.
 	 */
-	evaluate(cmd: AnimationCommand): { pose: ProceduralPose; weight: number } {
+	evaluate(cmd: AnimationCommand): { pose: ProceduralPose; weight: number; legDriven: boolean } {
 		const phase = cmd.phase;
 		const isAttacking = phase === 'windup' || phase === 'active' || phase === 'recovery';
 		const isFinisher = phase === 'finisher_setup' || phase === 'finisher_impact';
 
 		if (!isAttacking && !isFinisher) {
-			return { pose: zeroPose(), weight: 0 };
+			return { pose: zeroPose(), weight: 0, legDriven: false };
 		}
 
 		// Look up move config (cache for performance)
@@ -38,8 +38,14 @@ export class MovePoseEvaluator {
 		}
 		const config = this._lastConfig;
 		if (!config) {
-			return { pose: zeroPose(), weight: 0 };
+			return { pose: zeroPose(), weight: 0, legDriven: false };
 		}
+
+		// A move is "leg-driven" (a kick/knee) if its impact pose throws a leg
+		// forward. Such moves need the leg channels unmasked and applied fully.
+		const legDriven =
+			Math.abs(config.active.rightLegX ?? 0) > 0.3 ||
+			Math.abs(config.active.leftLegX ?? 0) > 0.3;
 
 		// Compute progress (0 → 1) through current phase
 		const totalFrames = Math.max(1, cmd.phaseTotalFrames);
@@ -80,10 +86,11 @@ export class MovePoseEvaluator {
 				break;
 		}
 
-		// Compute weight based on upper body ratio
-		const weight = isFinisher ? 1.0 : Math.max(0.3, config.upperBodyRatio);
+		// Leg-driven moves apply near-fully so the leg actually extends into the
+		// strike; arm moves keep the upper/lower split via upperBodyRatio.
+		const weight = isFinisher ? 1.0 : legDriven ? 0.95 : Math.max(0.3, config.upperBodyRatio);
 
-		return { pose, weight };
+		return { pose, weight, legDriven };
 	}
 
 	/**

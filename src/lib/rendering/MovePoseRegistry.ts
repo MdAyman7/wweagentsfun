@@ -121,8 +121,8 @@ const MOVE_POSES: Record<string, MovePoseConfig> = {
 	},
 	kick: {
 		leadArm: 'both',
-		windup: { rightLegX: -0.6, rightCalfX: 0.5, bodyX: -0.1 },
-		active: { rightLegX: 0.7, rightCalfX: 0, bodyX: 0.08 },
+		windup: { rightLegX: -0.7, rightCalfX: 0.7, bodyX: -0.12 },
+		active: { rightLegX: 1.35, rightCalfX: -0.15, bodyX: 0.14 },
 		useIK: false,
 		rootMotion: { windupX: -0.03, activeX: 0.08, activeY: 0 },
 		transitionMode: null,
@@ -131,7 +131,7 @@ const MOVE_POSES: Record<string, MovePoseConfig> = {
 	roundhouse_kick: {
 		leadArm: 'both',
 		windup: { rightLegX: -0.5, rightCalfX: 0.4, bodyRotY: -0.3, bodyX: -0.15 },
-		active: { rightLegX: 0.6, rightLegZ: 0.3, rightCalfX: 0, bodyRotY: 0.4, bodyX: 0.1 },
+		active: { rightLegX: 1.25, rightLegZ: 0.3, rightCalfX: -0.1, bodyRotY: 0.4, bodyX: 0.12 },
 		useIK: false,
 		rootMotion: { windupX: -0.04, activeX: 0.12, activeY: 0 },
 		transitionMode: null,
@@ -140,7 +140,7 @@ const MOVE_POSES: Record<string, MovePoseConfig> = {
 	superkick: {
 		leadArm: 'both',
 		windup: { rightLegX: -0.8, rightCalfX: 0.6, bodyX: -0.15, leftArmZ: Math.PI * 0.3 },
-		active: { rightLegX: 1.2, rightCalfX: 0, bodyX: 0.1, leftArmZ: Math.PI * 0.4 },
+		active: { rightLegX: 1.55, rightCalfX: 0, bodyX: 0.12, leftArmZ: Math.PI * 0.4 },
 		useIK: false,
 		rootMotion: { windupX: -0.05, activeX: 0.15, activeY: 0.05 },
 		transitionMode: null,
@@ -166,8 +166,8 @@ const MOVE_POSES: Record<string, MovePoseConfig> = {
 	},
 	knee_strike: {
 		leadArm: 'both',
-		windup: { rightLegX: -0.5, rightCalfX: 0.7, bodyX: -0.05 },
-		active: { rightLegX: 0.4, rightCalfX: -0.2, bodyX: -0.1, bodyY: 0.03 },
+		windup: { rightLegX: -0.4, rightCalfX: 0.9, bodyX: -0.05 },
+		active: { rightLegX: 0.95, rightCalfX: -1.1, bodyX: -0.1, bodyY: 0.06 },
 		useIK: false,
 		rootMotion: { windupX: -0.02, activeX: 0.06, activeY: 0.03 },
 		transitionMode: null,
@@ -316,8 +316,8 @@ const MOVE_POSES: Record<string, MovePoseConfig> = {
 	},
 	running_knee: {
 		leadArm: 'both',
-		windup: { rightLegX: -0.6, rightCalfX: 0.8, bodyX: -0.15 },
-		active: { rightLegX: 0.5, rightCalfX: -0.3, bodyX: -0.2, bodyY: 0.05 },
+		windup: { rightLegX: -0.5, rightCalfX: 0.9, bodyX: -0.15 },
+		active: { rightLegX: 1.0, rightCalfX: -1.0, bodyX: -0.2, bodyY: 0.08 },
 		useIK: false,
 		rootMotion: { windupX: 0, activeX: 0.2, activeY: 0.05 },
 		transitionMode: 'fast',
@@ -335,7 +335,7 @@ const MOVE_POSES: Record<string, MovePoseConfig> = {
 	big_boot: {
 		leadArm: 'both',
 		windup: { rightLegX: -0.5, rightCalfX: 0.3, bodyX: -0.1 },
-		active: { rightLegX: 1.0, rightCalfX: 0, bodyX: 0.08 },
+		active: { rightLegX: 1.5, rightCalfX: 0, bodyX: 0.1 },
 		useIK: false,
 		rootMotion: { windupX: -0.03, activeX: 0.12, activeY: 0 },
 		transitionMode: null,

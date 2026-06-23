@@ -32,3 +32,13 @@ export const LOWER_BODY: BodyMask = {
 	leftLeg: 1, rightLeg: 1,
 	torso: 0.2, hips: 0.7, head: 0
 };
+
+/**
+ * Combat leg strike — legs drive fully (kicks/knees), torso & hips follow for
+ * weight transfer, arms mostly hold their guard from the base pose.
+ */
+export const COMBAT_LEG: BodyMask = {
+	leftArm: 0.3, rightArm: 0.3,
+	leftLeg: 1, rightLeg: 1,
+	torso: 0.85, hips: 0.7, head: 0.5
+};

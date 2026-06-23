@@ -63,6 +63,11 @@ export class AnimLayerStack {
 		this.layers[index].pose = pose;
 	}
 
+	/** Set the body-region mask for a layer. */
+	setMask(index: number, mask: BodyMask): void {
+		this.layers[index].mask = mask;
+	}
+
 	/**
 	 * Compute the final blended pose from all layers.
 	 * Override layers replace proportionally; additive layers add on top.

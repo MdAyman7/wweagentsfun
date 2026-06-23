@@ -1,6 +1,7 @@
 import { lerp, clamp } from '../utils/math';
 import type { AnimationCommand } from './AnimationCommand';
 import { AnimLayerStack } from './AnimLayerStack';
+import { COMBAT_LEG, UPPER_BODY } from './BodyMask';
 import { MovePoseEvaluator } from './MovePoseEvaluator';
 import { FinisherAnimController } from './FinisherAnimController';
 import { TRANSITION_SPEEDS, type TransitionMode } from './MovePoseRegistry';
@@ -417,6 +418,8 @@ export class ProceduralAnimator {
 			const combatResult = this._moveEval.evaluate(cmd);
 			this._layerStack.setPose(2, combatResult.pose);
 			this._layerStack.setWeight(2, combatResult.weight);
+			// Kicks/knees need the leg channels unmasked; arm moves keep upper-body mask.
+			this._layerStack.setMask(2, combatResult.legDriven ? COMBAT_LEG : UPPER_BODY);
 		} else {
 			this._layerStack.setWeight(2, 0);
 		}
