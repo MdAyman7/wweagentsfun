@@ -2,7 +2,7 @@
 	import { uiState } from '$lib/state/uiStore';
 	import MenuScreen from '../components/screens/MenuScreen.svelte';
 	import FighterSelectScreen from '../components/screens/FighterSelectScreen.svelte';
-	import MatchScreen from '../components/screens/MatchScreen.svelte';
+	import MatchScreen from '../components/screens/MatchScreenV2.svelte';
 	import ComingSoonScreen from '../components/screens/ComingSoonScreen.svelte';
 </script>
 
