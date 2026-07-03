@@ -78,20 +78,35 @@
 
 		const snap = sim.snapshot();
 
-		// Drive the 3D fighters from the sim.
+		// Drive the 3D fighters from the sim. The sim keeps fighters ~1.5+ units
+		// apart, which reads as a distant fight — compress the visual gap and add
+		// an attack lunge so they trade up close and limbs actually connect.
+		const DIST = 0.46;
+		const wx: [number, number] = [0, 0];
 		for (let i = 0; i < 2; i++) {
 			const f = snap.fighters[i];
 			const opp = snap.fighters[1 - i];
-			const x = Math.max(-(RING.half - 0.3), Math.min(RING.half - 0.3, f.posX));
-			f3d[i].root.position.set(x, RING.mat, 0);
-			f3d[i].root.rotation.y = opp.posX >= f.posX ? Math.PI / 2 : -Math.PI / 2;
+			const dir = opp.posX >= f.posX ? 1 : -1;
+			let x = f.posX * DIST;
+			if (f.actionPhase === 'active') x += dir * 0.3;
+			else if (f.actionPhase === 'windup') x += dir * 0.12;
+			x = Math.max(-(RING.half - 0.3), Math.min(RING.half - 0.3, x));
+			wx[i] = x;
+			f3d[i].root.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
 			f3d[i].applyPose(anim[i].update(f, dt / 1000, simTime, 0));
 		}
+		// Don't let them clip through each other.
+		const gap = wx[1] - wx[0];
+		if (Math.abs(gap) < 0.44) {
+			const mid = (wx[0] + wx[1]) / 2, s = Math.sign(gap) || 1;
+			wx[0] = mid - s * 0.22; wx[1] = mid + s * 0.22;
+		}
+		f3d[0].root.position.set(wx[0], RING.mat, 0);
+		f3d[1].root.position.set(wx[1], RING.mat, 0);
 
 		// Camera frames the action; tightens with crowd energy.
-		const a = snap.fighters[0], b = snap.fighters[1];
-		focus.set((a.posX + b.posX) / 2, 1, 0);
-		cam.update(dt / 1000, focus, Math.abs(a.posX - b.posX), snap.crowd);
+		focus.set((wx[0] + wx[1]) / 2, 1, 0);
+		cam.update(dt / 1000, focus, Math.abs(wx[0] - wx[1]), snap.crowd);
 
 		arena.setEnergy(snap.crowd); arena.update(simTime);
 		stage.setExposure(1.02 + snap.crowd * 0.22);

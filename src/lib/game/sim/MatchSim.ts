@@ -50,7 +50,7 @@ export class MatchSim {
 			stamina: def.stats.stamina, maxStamina: def.stats.stamina,
 			momentum: 0,
 			limb: { head: 0, body: 0, legs: 0, arms: 0 },
-			posX: slot === 0 ? -2.2 : 2.2,
+			posX: slot === 0 ? -1.6 : 1.6,
 			facing: slot === 0 ? 1 : -1,
 			stance: 'standing',
 			phaseTimer: 0, decisionCd: this.rng?.int(20, 50) ?? 30,
