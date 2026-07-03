@@ -3,14 +3,15 @@ import type {
 } from './types.ts';
 import { Rng } from './rng.ts';
 import { getMove } from '../data/moves.ts';
-import { resolveAttack } from './CombatResolver.ts';
+import { resolveAttack, computeDamage } from './CombatResolver.ts';
 import { chooseAction, type MatchPhase, type Intent } from './ai.ts';
 import { clamp, clamp01, statFrac } from './util.ts';
 
 const HZ = 60;
-const RING_HALF = 3.2;
-const MIN_SEP = 0.9;
-const ENGAGE = 1.5;
+/** Usable ring half-extent — matches the rendered ring so rope bounces and
+ *  turnbuckle climbs line up visually. */
+const RING_HALF = 2.7;
+const MIN_SEP = 0.6;
 const PIN_INTERVAL = 50; // ~0.83s per ref count
 
 export interface MatchOptions {
@@ -20,6 +21,8 @@ export interface MatchOptions {
 
 const hpPct = (f: Fighter): number => clamp01(f.health / f.maxHealth);
 const stamPct = (f: Fighter): number => clamp01(f.stamina / f.maxStamina);
+/** 2D ring distance between two fighters. */
+const dist2 = (a: Fighter, b: Fighter): number => Math.hypot(a.posX - b.posX, a.posZ - b.posZ);
 
 export class MatchSim {
 	readonly fighters: [Fighter, Fighter];
@@ -50,8 +53,11 @@ export class MatchSim {
 			stamina: def.stats.stamina, maxStamina: def.stats.stamina,
 			momentum: 0,
 			limb: { head: 0, body: 0, legs: 0, arms: 0 },
-			posX: slot === 0 ? -1.6 : 1.6,
+			posX: slot === 0 ? -1.4 : 1.4,
+			posZ: 0,
 			facing: slot === 0 ? 1 : -1,
+			special: null,
+			circleDir: slot === 0 ? 1 : -1,
 			stance: 'standing',
 			phaseTimer: 0, decisionCd: this.rng?.int(20, 50) ?? 30,
 			action: null, actionPhase: null, activeMoveId: null,
@@ -133,7 +139,7 @@ export class MatchSim {
 			f.momentum = clamp(f.momentum - 0.045, 0, 100);
 			if (f.pinVulnerable > 0) f.pinVulnerable--;
 			const opp = this.fighters[1 - f.slot];
-			if (!f.finisherReady && (f.momentum >= 90 || (hpPct(opp) < 0.3 && f.momentum >= 55))) {
+			if (!f.finisherReady && (f.momentum >= 95 || (hpPct(opp) < 0.25 && f.momentum >= 60))) {
 				f.finisherReady = true;
 				this.emit('emotion', f.slot, `${f.def.name} is calling for the finish!`, { finisher: 1 });
 			}
@@ -147,6 +153,15 @@ export class MatchSim {
 		const f = this.fighters[slot];
 		const opp = this.fighters[1 - slot];
 
+		// Being covered / held — the pin & submission systems own this fighter.
+		if (f.stance === 'pinned' || f.stance === 'submission') return;
+
+		// Rope run / top-rope dive in flight.
+		if (f.special) {
+			this.updateSpecial(slot);
+			return;
+		}
+
 		// Downed / recovering.
 		if (f.stance === 'down' || f.stance === 'getting_up' || f.stance === 'groggy') {
 			if (f.phaseTimer > 0) f.phaseTimer--;
@@ -157,8 +172,9 @@ export class MatchSim {
 			return;
 		}
 
-		// Mid-action: advance windup → active → recovery.
-		if (f.action && f.actionPhase) {
+		// Mid-action: attacks advance windup → active → recovery; timed actions
+		// (block/dodge/circle/approach/taunt) commit for their full duration.
+		if (f.action && (f.actionPhase || f.phaseTimer > 0)) {
 			if (f.phaseTimer > 0) f.phaseTimer--;
 			if (f.phaseTimer <= 0) this.advanceActionPhase(slot);
 			return;
@@ -166,9 +182,201 @@ export class MatchSim {
 
 		// Neutral: decide.
 		if (f.decisionCd > 0) { f.decisionCd--; return; }
-		const distance = Math.abs(f.posX - opp.posX);
-		const intent = chooseAction(f, opp, { distance, phase: this.phase }, this.rng);
+		const intent = chooseAction(f, opp, { distance: dist2(f, opp), phase: this.phase }, this.rng);
 		this.startIntent(slot, intent);
+	}
+
+	// ─── Rope runs & top-rope dives ────────────────────────────────────
+
+	private updateSpecial(slot: 0 | 1): void {
+		const f = this.fighters[slot];
+		const opp = this.fighters[1 - slot];
+		const sp = f.special!;
+
+		if (sp.kind === 'rope_run') {
+			const speed = 0.075 + statFrac(f.def.stats.speed) * 0.03; // sprint — ~2.5× walking
+			f.posX += sp.dirX * speed;
+			f.posZ += sp.dirZ * speed;
+			const atRopes = Math.abs(f.posX) >= RING_HALF || Math.abs(f.posZ) >= RING_HALF;
+			f.posX = clamp(f.posX, -RING_HALF, RING_HALF);
+			f.posZ = clamp(f.posZ, -RING_HALF, RING_HALF);
+
+			if (sp.stage === 'out') {
+				if (atRopes) {
+					// Hit the ropes — spring back toward the opponent with momentum.
+					sp.stage = 'back';
+					const dx = opp.posX - f.posX, dz = opp.posZ - f.posZ;
+					const len = Math.hypot(dx, dz) || 1;
+					sp.dirX = dx / len; sp.dirZ = dz / len;
+					f.momentum = clamp(f.momentum + 5, 0, 100);
+					this.crowd = clamp01(this.crowd + 0.06);
+					this.emit('rope_bounce', slot, `${f.def.name} bounces off the ropes!`);
+				}
+				return;
+			}
+
+			// Charging back — track the opponent lightly, hit on contact.
+			const dx = opp.posX - f.posX, dz = opp.posZ - f.posZ;
+			const d = Math.hypot(dx, dz);
+			const len = d || 1;
+			sp.dirX = sp.dirX * 0.82 + (dx / len) * 0.18;
+			sp.dirZ = sp.dirZ * 0.82 + (dz / len) * 0.18;
+			const n = Math.hypot(sp.dirX, sp.dirZ) || 1;
+			sp.dirX /= n; sp.dirZ /= n;
+
+			if (d < 1.05) {
+				// Contact — deliver the running move with a charge bonus.
+				f.special = null;
+				f.action = null;
+				this.resolveRunningHit(slot, sp.moveId);
+				return;
+			}
+			// Only pull up when actually driving INTO a boundary — sliding along
+			// the rope line while chasing is fine.
+			const drivingOut =
+				(f.posX >= RING_HALF && sp.dirX > 0.05) || (f.posX <= -RING_HALF && sp.dirX < -0.05) ||
+				(f.posZ >= RING_HALF && sp.dirZ > 0.05) || (f.posZ <= -RING_HALF && sp.dirZ < -0.05);
+			if (drivingOut) {
+				// Ran the gauntlet and nobody home — pull up, winded.
+				f.special = null;
+				f.action = null;
+				f.decisionCd = this.rng.int(14, 26);
+				f.stamina = clamp(f.stamina - 4, 0, f.maxStamina);
+				this.emit('move_miss', slot, `${f.def.name}'s charge comes up empty!`);
+			}
+			return;
+		}
+
+		// ── Top-rope dive ──
+		sp.t++;
+		const k = clamp01(sp.t / sp.total);
+		if (sp.stage === 'climb') {
+			// Walk/climb up into the corner.
+			f.posX = sp.fromX + (sp.cornerX - sp.fromX) * k;
+			f.posZ = sp.fromZ + (sp.cornerZ - sp.fromZ) * k;
+			if (sp.t >= sp.total) {
+				sp.stage = 'perch'; sp.t = 0; sp.total = 14;
+				this.crowd = clamp01(this.crowd + 0.15);
+				this.emit('climb', slot, `${f.def.name} is up top — the crowd rises!`);
+			}
+			return;
+		}
+		if (sp.stage === 'perch') {
+			if (sp.t >= sp.total) {
+				// Launch! Aim at where the opponent is right now.
+				sp.stage = 'air'; sp.t = 0; sp.total = 26;
+				sp.fromX = f.posX; sp.fromZ = f.posZ;
+				sp.targetX = clamp(opp.posX, -RING_HALF, RING_HALF);
+				sp.targetZ = clamp(opp.posZ, -RING_HALF, RING_HALF);
+				const move = getMove(sp.moveId);
+				this.emit('dive', slot, `${f.def.name} FLIES OFF THE TOP with the ${move?.name ?? 'dive'}!`);
+			}
+			return;
+		}
+		// In the air — travel the arc; land and resolve.
+		f.posX = sp.fromX + (sp.targetX - sp.fromX) * k;
+		f.posZ = sp.fromZ + (sp.targetZ - sp.fromZ) * k;
+		if (sp.t >= sp.total) {
+			f.special = null;
+			f.action = null;
+			this.resolveDiveLanding(slot, sp.moveId);
+		}
+	}
+
+	/** A rope-run charge connects (or gets countered) at full speed. */
+	private resolveRunningHit(slot: 0 | 1, moveId: string): void {
+		const att = this.fighters[slot];
+		const def = this.fighters[1 - slot];
+		const move = getMove(moveId);
+		if (!move) return;
+
+		// A read opponent can dodge the charge — riskier than a standing strike.
+		const dodgeP = def.stance === 'standing'
+			? clamp(0.1 + statFrac(def.def.stats.speed) * 0.22 - statFrac(att.def.stats.speed) * 0.08, 0.05, 0.35)
+			: 0;
+		if (this.rng.chance(dodgeP)) {
+			att.stance = 'groggy'; att.phaseTimer = this.rng.int(16, 30);
+			att.tally.movesMissed++;
+			this.crowd = clamp01(this.crowd + 0.12);
+			this.emit('dodge', def.slot, `${def.def.name} sidesteps the charge — ${att.def.name} eats the ropes!`);
+			return;
+		}
+
+		// A composed defender can counter the charge (leapfrog/drop-down into a slam).
+		if (def.stance === 'standing') {
+			const counterP = clamp(0.05 + statFrac(def.def.stats.technique) * 0.14, 0.05, 0.2);
+			if (this.rng.chance(counterP)) {
+				const rev = computeDamage(def, att, move, this.rng);
+				const dmg = Math.max(1, Math.round(rev.dmg * 0.7));
+				this.applyDamage(att, dmg, 'body');
+				def.momentum = clamp(def.momentum + 12, 0, 100);
+				def.tally.reversals++;
+				this.crowd = clamp01(this.crowd + 0.2);
+				this.emit('reversal', def.slot, `${def.def.name} catches the charge and plants ${att.def.name}!`, { damage: dmg });
+				this.knockdown(slot, att.health <= 0);
+				return;
+			}
+		}
+
+		const { dmg: base, crit } = computeDamage(att, def, move, this.rng);
+		const dmg = Math.max(1, Math.round(base * 1.35));
+		this.applyDamage(def, dmg, move.region);
+		att.momentum = clamp(att.momentum + move.momentum + 6, 0, 100);
+		att.comboCount++;
+		att.tally.movesLanded++;
+		att.tally.damageDealt += dmg;
+		this.crowd = clamp01(this.crowd + 0.2);
+		this.emit('move_hit', slot, `${att.def.name} charges in — running ${move.name}${crit ? ' — flush!' : ''} (${dmg})!`, { move: move.id, damage: dmg, running: true });
+		// Full-steam impact puts people down far more often.
+		if (this.rng.chance(0.75) || def.health <= 0) this.knockdown(def.slot, def.health <= 0);
+		else this.stagger(def.slot);
+	}
+
+	/** The dive lands — flush on a grounded foe, or nobody home. */
+	private resolveDiveLanding(slot: 0 | 1, moveId: string): void {
+		const att = this.fighters[slot];
+		const def = this.fighters[1 - slot];
+		const move = getMove(moveId);
+		if (!move) return;
+
+		const d = dist2(att, def);
+		// Even a grounded opponent can roll out of the way at the last second.
+		const grounded = (def.stance === 'down' || def.stance === 'getting_up' || def.stance === 'pinned') && this.rng.chance(0.82);
+		const groggy = def.stance === 'groggy';
+		// Standing, alert opponents step aside more often than not.
+		const connects =
+			(grounded && d < 1.25) ||
+			(groggy && d < 1.15 && this.rng.chance(0.8)) ||
+			(def.stance === 'standing' && d < 1.1 && this.rng.chance(0.4));
+
+		if (connects) {
+			// Same damage model as everything else, with a top-rope premium.
+			const { dmg: base } = computeDamage(att, def, move, this.rng);
+			const dmg = Math.max(1, Math.round(base * 1.3));
+			this.applyDamage(def, dmg, move.region);
+			att.momentum = clamp(att.momentum + move.momentum + 10, 0, 100);
+			att.tally.movesLanded++;
+			att.tally.damageDealt += dmg;
+			// A dive only opens a real pin window once the opponent is worn.
+			if (hpPct(def) < 0.55) def.pinVulnerable = Math.max(def.pinVulnerable, 100);
+			this.crowd = clamp01(this.crowd + 0.4);
+			this.emit('dive_hit', slot, `${att.def.name} CRUSHES ${def.def.name} from the top rope (${dmg})!`, { move: move.id, damage: dmg });
+			if (def.stance !== 'down') this.knockdown(def.slot, def.health <= 0);
+			else def.phaseTimer = Math.max(def.phaseTimer, 70); // flattened — stays down
+			// Diver often hooks the leg right off the impact.
+			if (this.rng.chance(0.65)) this.startCover(slot);
+			else att.decisionCd = this.rng.int(12, 24);
+			return;
+		}
+
+		// NOBODY HOME — crash and burn.
+		const selfDmg = 6 + this.rng.int(0, 6);
+		this.applyDamage(att, selfDmg, 'body');
+		att.tally.movesMissed++;
+		def.momentum = clamp(def.momentum + 14, 0, 100);
+		this.crowd = clamp01(this.crowd + 0.3);
+		this.emit('dive_crash', slot, `NOBODY HOME! ${att.def.name} crashes and burns!`, { damage: selfDmg });
+		this.knockdown(slot, false);
 	}
 
 	private startIntent(slot: 0 | 1, intent: Intent): void {
@@ -178,8 +386,46 @@ export class MatchSim {
 			case 'idle': f.action = null; f.actionPhase = null; f.decisionCd = this.rng.int(14, 30); return;
 			case 'approach': f.action = 'approach'; f.actionPhase = null; f.phaseTimer = 8; return;
 			case 'retreat': f.action = 'retreat'; f.actionPhase = null; f.phaseTimer = 10; return;
+			case 'circle':
+				f.action = 'circle'; f.actionPhase = null;
+				f.circleDir = this.rng.chance(0.5) ? 1 : -1;
+				f.phaseTimer = this.rng.int(26, 60);
+				return;
 			case 'block': f.action = 'block'; f.actionPhase = null; f.phaseTimer = 24; return;
-			case 'dodge': f.action = 'dodge'; f.actionPhase = null; f.phaseTimer = 16; return;
+			case 'dodge':
+				f.action = 'dodge'; f.actionPhase = null;
+				f.circleDir = this.rng.chance(0.5) ? 1 : -1; // sidestep direction
+				f.phaseTimer = 16;
+				return;
+			case 'rope_run': {
+				// Sprint away from the opponent to the ropes, then charge back.
+				let ax = f.posX - opp.posX, az = f.posZ - opp.posZ;
+				let len = Math.hypot(ax, az) || 1;
+				ax /= len; az /= len;
+				// Already backed against those ropes? Run across the ring instead.
+				const nextEdge = Math.min(
+					edgeDistance(f.posX, f.posZ, ax, az),
+					RING_HALF * 2
+				);
+				if (nextEdge < 1.0) { ax = -ax; az = -az; }
+				f.action = 'rope_run'; f.actionPhase = null;
+				f.special = { kind: 'rope_run', stage: 'out', dirX: ax, dirZ: az, moveId: intent.moveId! };
+				this.emit('rope_run', slot, `${f.def.name} takes off to the ropes!`);
+				return;
+			}
+			case 'climb': {
+				// Head for the nearest corner and go up top.
+				const cx = f.posX >= 0 ? RING_HALF : -RING_HALF;
+				const cz = f.posZ >= 0 ? RING_HALF : -RING_HALF;
+				const travel = Math.hypot(cx - f.posX, cz - f.posZ);
+				f.action = 'climb'; f.actionPhase = null;
+				f.special = {
+					kind: 'dive', stage: 'climb', cornerX: cx, cornerZ: cz, moveId: intent.moveId!,
+					t: 0, total: Math.round(26 + travel * 14), fromX: f.posX, fromZ: f.posZ, targetX: 0, targetZ: 0
+				};
+				this.emit('climb', slot, `${f.def.name} heads for the turnbuckle!`);
+				return;
+			}
 			case 'taunt':
 				f.action = 'taunt'; f.actionPhase = null; f.phaseTimer = 36;
 				f.momentum = clamp(f.momentum + 12, 0, 100);
@@ -223,8 +469,10 @@ export class MatchSim {
 			f.phaseTimer = Math.max(3, Math.round(move.recovery * fatigue));
 		} else {
 			// Recovery done (or a non-attack timed action finished).
+			const wasMovement = f.action === 'approach' || f.action === 'retreat' || f.action === 'circle';
 			f.action = null; f.actionPhase = null; f.activeMoveId = null;
-			f.decisionCd = this.rng.int(10, 24);
+			// Movement flows straight into the next read; combat takes a beat.
+			f.decisionCd = wasMovement ? this.rng.int(1, 4) : this.rng.int(10, 24);
 			// Auto-cover after a finisher lands.
 			if (this.pendingCover === slot) { this.pendingCover = null; this.startCover(slot); }
 		}
@@ -236,8 +484,15 @@ export class MatchSim {
 		const move = att.activeMoveId ? getMove(att.activeMoveId) : null;
 		if (!move) return;
 
+		// A defender flying off the top rope can't be punched out of the air here.
+		if (def.special?.kind === 'dive' && def.special.stage === 'air') {
+			att.tally.movesMissed++;
+			this.emit('move_miss', slot, `${att.def.name} swings at empty air!`, { move: move.id });
+			return;
+		}
+
 		// Range check at contact — dodged footwork / spacing makes it whiff.
-		const dist = Math.abs(att.posX - def.posX);
+		const dist = dist2(att, def);
 		if (dist > move.range + 0.5 && def.stance === 'standing') {
 			att.comboCount = 0; att.tally.movesMissed++;
 			this.emit('move_miss', slot, `${att.def.name} misses the ${move.name}.`, { move: move.id });
@@ -320,6 +575,7 @@ export class MatchSim {
 		const f = this.fighters[slot];
 		if (f.stance !== 'standing') return;
 		f.stance = 'groggy';
+		f.special = null;
 		f.action = null; f.actionPhase = null; f.activeMoveId = null;
 		f.phaseTimer = this.rng.int(14, 26);
 	}
@@ -333,9 +589,10 @@ export class MatchSim {
 		const f = this.fighters[slot];
 		if (f.stance === 'pinned' || f.stance === 'submission') return;
 		f.stance = 'down';
+		f.special = null; // knocked off the ropes / out of a charge
 		f.action = null; f.actionPhase = null; f.activeMoveId = null; f.comboCount = 0;
-		const base = 60 + (1 - hpPct(f)) * 90 + (hard ? 45 : 0);
-		f.phaseTimer = Math.round(clamp(base, 45, 240));
+		const base = 85 + (1 - hpPct(f)) * 100 + (hard ? 55 : 0);
+		f.phaseTimer = Math.round(clamp(base, 60, 260));
 		this.emit('knockdown', slot, `${f.def.name} is down!`);
 	}
 
@@ -345,8 +602,11 @@ export class MatchSim {
 		const att = this.fighters[slot];
 		const def = this.fighters[1 - slot];
 		if (!(def.stance === 'down' || def.stance === 'getting_up')) { att.decisionCd = 8; return; }
-		if (Math.abs(att.posX - def.posX) > 1.5) { att.decisionCd = 6; return; }
+		if (dist2(att, def) > 1.5) { att.decisionCd = 6; return; }
 		def.stance = 'pinned';
+		// Lock the covered wrestler completely — no rope-running out of a pin.
+		def.special = null;
+		def.action = null; def.actionPhase = null; def.activeMoveId = null;
 		att.action = 'cover'; att.actionPhase = null; att.phaseTimer = 0;
 		this.pin = { attacker: slot, defender: (1 - slot) as 0 | 1, count: 0, timer: PIN_INTERVAL };
 		this.crowd = clamp01(this.crowd + 0.15);
@@ -381,14 +641,14 @@ export class MatchSim {
 		// Count 3 = pinfall (they failed to kick out at two).
 		if (this.pin.count >= 3) { this.finish(this.pin.attacker, 'pinfall'); return; }
 
-		// Booking: a pin can only actually END the match once the story has built —
-		// in the climax, after a prior near-fall, when nearly out, or off a fresh
-		// finisher on a worn foe. Earlier covers are guaranteed near-falls.
+		// Booking: a pin can only actually END the match against a genuinely
+		// worn-down opponent — nearly out, softened by a fresh finisher, or deep
+		// in the climax after surviving near-falls. Everything else is drama.
+		const worn = hpPct(def);
 		const canPin =
-			this.phase === 'climax' ||
-			def.kickouts >= 1 ||
-			hpPct(def) < 0.18 ||
-			(def.pinVulnerable > 0 && hpPct(def) < 0.34);
+			worn < 0.22 ||
+			(def.pinVulnerable > 0 && worn < 0.5) ||
+			(this.phase === 'climax' && worn < 0.38 && def.kickouts >= 1);
 		const kicksOut = !canPin || (def.health > 0 && this.rng.chance(this.kickoutChance(def, this.pin.count)));
 
 		// Count 2 is the near-fall roll — the dramatic beat.
@@ -413,6 +673,9 @@ export class MatchSim {
 		const victim = this.fighters[1 - slot];
 		const move = getMove(moveId);
 		victim.stance = 'submission';
+		// Fully seize the victim — no stale walks, wind-ups, or perched dives.
+		victim.special = null;
+		victim.action = null; victim.actionPhase = null; victim.activeMoveId = null;
 		victim.submitPressure = 25 + victim.limb[move?.region ?? 'body'] * 0.3;
 		holder.action = 'submit'; holder.actionPhase = null; holder.phaseTimer = 0;
 		this.sub = { holder: slot, victim: (1 - slot) as 0 | 1 };
@@ -451,19 +714,40 @@ export class MatchSim {
 	private updateMovement(): void {
 		const [a, b] = this.fighters;
 		for (const f of this.fighters) {
-			if (f.action !== 'approach' && f.action !== 'retreat' && f.action !== 'dodge') continue;
+			if (f.special) continue; // rope runs / dives steer themselves
+			if (f.action !== 'approach' && f.action !== 'retreat' && f.action !== 'circle' && f.action !== 'dodge') continue;
 			const opp = f.slot === 0 ? b : a;
-			const dir = opp.posX >= f.posX ? 1 : -1;
-			const speed = 0.03 + statFrac(f.def.stats.speed) * 0.035;
-			if (f.action === 'approach') f.posX += dir * speed;
-			else f.posX -= dir * speed * (f.action === 'dodge' ? 1.4 : 1);
+			const dx = opp.posX - f.posX, dz = opp.posZ - f.posZ;
+			const len = Math.hypot(dx, dz) || 1;
+			const nx = dx / len, nz = dz / len;
+			const speed = 0.028 + statFrac(f.def.stats.speed) * 0.032;
+			switch (f.action) {
+				case 'approach': f.posX += nx * speed; f.posZ += nz * speed; break;
+				case 'retreat': f.posX -= nx * speed * 0.8; f.posZ -= nz * speed * 0.8; break;
+				case 'circle': // strafe around the opponent
+					f.posX += -nz * speed * 0.85 * f.circleDir;
+					f.posZ += nx * speed * 0.85 * f.circleDir;
+					break;
+				case 'dodge': // quick lateral sidestep
+					f.posX += -nz * speed * 1.6 * f.circleDir;
+					f.posZ += nx * speed * 1.6 * f.circleDir;
+					break;
+			}
 			f.posX = clamp(f.posX, -RING_HALF, RING_HALF);
+			f.posZ = clamp(f.posZ, -RING_HALF, RING_HALF);
 		}
-		// Keep them from overlapping.
-		const gap = Math.abs(a.posX - b.posX);
-		if (gap < MIN_SEP) {
-			const mid = (a.posX + b.posX) / 2;
-			a.posX = mid - MIN_SEP / 2; b.posX = mid + MIN_SEP / 2;
+		// Keep them from standing inside each other (unless someone is flying).
+		if (!a.special && !b.special && a.stance !== 'pinned' && b.stance !== 'pinned') {
+			const dx = b.posX - a.posX, dz = b.posZ - a.posZ;
+			const d = Math.hypot(dx, dz);
+			if (d < MIN_SEP) {
+				const nx = d > 1e-4 ? dx / d : 1, nz = d > 1e-4 ? dz / d : 0;
+				const push = (MIN_SEP - d) / 2;
+				a.posX = clamp(a.posX - nx * push, -RING_HALF, RING_HALF);
+				a.posZ = clamp(a.posZ - nz * push, -RING_HALF, RING_HALF);
+				b.posX = clamp(b.posX + nx * push, -RING_HALF, RING_HALF);
+				b.posZ = clamp(b.posZ + nz * push, -RING_HALF, RING_HALF);
+			}
 		}
 		a.facing = a.posX <= b.posX ? 1 : -1;
 		b.facing = b.posX < a.posX ? 1 : -1;
@@ -492,7 +776,15 @@ export class MatchSim {
 		const w = this.fighters[winner];
 		const l = this.fighters[1 - winner];
 		const nearFalls = w.tally.nearFalls + l.tally.nearFalls;
-		const rating = clamp(2.5 + nearFalls * 0.35 + (w.tally.finishers + l.tally.finishers) * 0.2 + Math.min(1, (this.tick / HZ) / 300), 1, 5);
+		const fins = w.tally.finishers + l.tally.finishers;
+		// Stars need length AND drama — a 30-second squash can't be a classic.
+		const rating = clamp(
+			1.6 +
+				Math.min(1.5, nearFalls * 0.3) +
+				Math.min(0.6, fins * 0.25) +
+				Math.min(1.7, this.tick / HZ / 150),
+			1, 5
+		);
 		this.result = { winner, method, durationTicks: this.tick, rating: Math.round(rating * 10) / 10 };
 		this.crowd = 1;
 		this.emit('win', winner, `${w.def.name} wins by ${method}! (${'★'.repeat(Math.round(rating))})`, { rating });
@@ -519,6 +811,16 @@ export class MatchSim {
 	private emit(type: MatchEventType, actor: (0 | 1) | undefined, text: string, data?: Record<string, number | string | boolean>): void {
 		this.events.push({ tick: this.tick, type, actor, text, data });
 	}
+}
+
+/** Distance along a ray from (x,z) until it exits the ring square. */
+function edgeDistance(x: number, z: number, dx: number, dz: number): number {
+	let t = Infinity;
+	if (dx > 1e-6) t = Math.min(t, (RING_HALF - x) / dx);
+	else if (dx < -1e-6) t = Math.min(t, (-RING_HALF - x) / dx);
+	if (dz > 1e-6) t = Math.min(t, (RING_HALF - z) / dz);
+	else if (dz < -1e-6) t = Math.min(t, (-RING_HALF - z) / dz);
+	return t === Infinity ? RING_HALF * 2 : Math.max(0, t);
 }
 
 function intentKindFor(cat: string): Fighter['action'] {

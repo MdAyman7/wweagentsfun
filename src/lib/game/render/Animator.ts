@@ -26,8 +26,11 @@ export class Animator {
 		const snappy = f.actionPhase === 'active' || f.actionPhase === 'windup';
 		const rate = 1 - Math.exp(-(snappy ? 26 : 12) * dt);
 		this.cur = lerpPose(this.cur, target, rate);
-		this.cur.lift += airY; // jump arc from the sim
-		return this.cur;
+		// Apply the climb/dive height to a COPY — mutating the persistent pose
+		// would feed airY back through the lerp and send divers into the rafters.
+		const out = { ...this.cur };
+		out.lift += airY;
+		return out;
 	}
 
 	private targetPose(f: Fighter, time: number, tired: number): Pose {
@@ -39,6 +42,36 @@ export class Animator {
 		p.headX += tired * 0.3;
 		p.lArmX += tired * 0.5; p.rArmX += tired * 0.5;
 		p.lift += -tired * 0.02;
+
+		// Ring specials — sprinting the ropes / climbing / flying.
+		if (f.special?.kind === 'rope_run') return this.sprint(p);
+		if (f.special?.kind === 'dive') {
+			const sp = f.special;
+			if (sp.stage === 'climb') {
+				// Hustle to the corner first, then scale it.
+				if (sp.t / sp.total < 0.55) return this.sprint(p);
+				const step = Math.sin(time * 10) * 0.3;
+				p.lArmX = -2.2 + step * 0.3; p.rArmX = -2.2 - step * 0.3;
+				p.lElbow = -0.5; p.rElbow = -0.5;
+				p.lLegX = 0.6 + step; p.rLegX = 0.6 - step;
+				p.lKnee = -1.2; p.rKnee = -1.2;
+				p.spineX = 0.35; return p;
+			}
+			if (sp.stage === 'perch') {
+				// Crouched on the top rope, ready to fly.
+				p.lift = -0.18; p.spineX = 0.6;
+				p.lLegX = 1.1; p.rLegX = 1.1; p.lKnee = -2.0; p.rKnee = -2.0;
+				p.lArmX = -0.8; p.rArmX = -0.8; p.lArmZ = 0.5; p.rArmZ = -0.5;
+				p.lElbow = -0.3; p.rElbow = -0.3; p.headX = -0.2; return p;
+			}
+			// Airborne — splash pose: body flat, limbs spread wide.
+			p.lieX = 1.15; p.spineX = -0.1;
+			p.lArmX = -0.6; p.rArmX = -0.6; p.lArmZ = 1.3; p.rArmZ = -1.3;
+			p.lElbow = -0.15; p.rElbow = -0.15;
+			p.lLegX = 0.35; p.rLegX = 0.35; p.lLegZ = 0.3; p.rLegZ = -0.3;
+			p.lKnee = -0.4; p.rKnee = -0.4; p.headX = -0.4;
+			return p;
+		}
 
 		switch (f.stance) {
 			case 'down': case 'pinned':
@@ -57,7 +90,7 @@ export class Animator {
 		if (f.action && f.actionPhase) return this.attackPose(f, p);
 
 		switch (f.action) {
-			case 'approach': case 'retreat': return this.walk(f, p);
+			case 'approach': case 'retreat': case 'circle': return this.walk(f, p);
 			case 'block':
 				p.lArmX = -1.5; p.rArmX = -1.5; p.lElbow = -2.1; p.rElbow = -2.1;
 				p.lArmZ = 0.1; p.rArmZ = -0.1; p.spineX += 0.12; p.lift = -0.05; return p;
@@ -106,6 +139,19 @@ export class Animator {
 		p.lKnee = -0.2 - Math.max(0, -s) * 0.5; p.rKnee = -0.2 - Math.max(0, s) * 0.5;
 		p.lArmX = -0.5 - s * 0.4; p.rArmX = -0.5 + s * 0.4;
 		p.spineX += 0.12; return p;
+	}
+
+	/** Full sprint — the rope run. Big stride, pumping arms, deep lean. */
+	private sprint(p: Pose): Pose {
+		this.walkPhase += 0.55;
+		const s = Math.sin(this.walkPhase);
+		p.lLegX = s * 0.95; p.rLegX = -s * 0.95;
+		p.lKnee = -0.3 - Math.max(0, -s) * 0.9; p.rKnee = -0.3 - Math.max(0, s) * 0.9;
+		p.lArmX = -0.6 - s * 0.8; p.rArmX = -0.6 + s * 0.8;
+		p.lElbow = -1.6; p.rElbow = -1.6;
+		p.spineX = 0.38; p.headX = -0.15;
+		p.lift += Math.abs(s) * 0.03;
+		return p;
 	}
 
 	private lie(f: Fighter, angle = 1.42): Pose {

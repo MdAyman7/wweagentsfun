@@ -103,6 +103,9 @@ export type ActionKind =
 	| 'idle'
 	| 'approach'
 	| 'retreat'
+	| 'circle' // strafe laterally around the opponent
+	| 'rope_run' // sprint to the ropes, bounce, charge back
+	| 'climb' // climb the turnbuckle for a top-rope dive
 	| 'strike'
 	| 'grapple'
 	| 'aerial'
@@ -116,6 +119,36 @@ export type ActionKind =
 	| 'kickout'
 	| 'escape'; // escape a submission
 
+/** In-flight special maneuver state (rope run / top-rope dive). */
+export type SpecialState =
+	| {
+			kind: 'rope_run';
+			stage: 'out' | 'back';
+			/** Normalized run direction. */
+			dirX: number;
+			dirZ: number;
+			/** The running move to hit on contact. */
+			moveId: string;
+	  }
+	| {
+			kind: 'dive';
+			stage: 'climb' | 'perch' | 'air';
+			/** Corner being climbed. */
+			cornerX: number;
+			cornerZ: number;
+			/** Aerial move used for the dive. */
+			moveId: string;
+			/** Stage progress in ticks. */
+			t: number;
+			/** Total ticks for the current stage. */
+			total: number;
+			/** Launch + landing points for the air arc. */
+			fromX: number;
+			fromZ: number;
+			targetX: number;
+			targetZ: number;
+	  };
+
 export interface Fighter {
 	def: WrestlerDef;
 	slot: 0 | 1;
@@ -127,7 +160,13 @@ export interface Fighter {
 	/** Accumulated damage per region (0..100). */
 	limb: { head: number; body: number; legs: number; arms: number };
 	posX: number;
+	/** Depth position — the ring is a full 2D square, not a line. */
+	posZ: number;
 	facing: 1 | -1;
+	/** Active rope-run / top-rope dive state (null = none). */
+	special: SpecialState | null;
+	/** Strafe direction while circling (+1 / -1). */
+	circleDir: 1 | -1;
 	stance: Stance;
 	/** Frames left in the current action phase (or stance timer when down). */
 	phaseTimer: number;
@@ -182,6 +221,12 @@ export type MatchEventType =
 	| 'submission_applied'
 	| 'submission_escape'
 	| 'tap'
+	| 'rope_run'
+	| 'rope_bounce'
+	| 'climb'
+	| 'dive'
+	| 'dive_hit'
+	| 'dive_crash'
 	| 'taunt'
 	| 'comeback'
 	| 'emotion'

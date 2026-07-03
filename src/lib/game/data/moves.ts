@@ -8,8 +8,9 @@ function mk(
 	damage: number,
 	opts: Partial<MoveDef> = {}
 ): MoveDef {
+	// Tight ranges — fighters trade chest-to-chest; the renderer maps 1:1.
 	const range =
-		category === 'aerial' ? 2.6 : category === 'grapple' || category === 'submission' ? 1.2 : 1.7;
+		category === 'aerial' ? 1.6 : category === 'grapple' || category === 'submission' ? 0.95 : 1.15;
 	return {
 		id,
 		name,
@@ -39,7 +40,7 @@ export const MOVES: MoveDef[] = [
 	mk('kick', 'Kick', 'strike', 7, { region: 'legs' }),
 	mk('roundhouse', 'Roundhouse Kick', 'strike', 12, { region: 'head', knockdown: true, windup: 12 }),
 	mk('dropkick', 'Dropkick', 'aerial', 12, { knockdown: true, aerial: true }),
-	mk('clothesline', 'Clothesline', 'strike', 11, { knockdown: true, range: 1.9 }),
+	mk('clothesline', 'Clothesline', 'strike', 11, { knockdown: true, range: 1.4 }),
 	mk('big_boot', 'Big Boot', 'strike', 12, { region: 'head', knockdown: true }),
 	mk('running_knee', 'Running Knee', 'strike', 13, { region: 'head', knockdown: true, windup: 12 }),
 	mk('high_knee', 'High Knee', 'strike', 10, { region: 'head', knockdown: true }),

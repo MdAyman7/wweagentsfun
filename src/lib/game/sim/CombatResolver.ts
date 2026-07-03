@@ -29,7 +29,8 @@ function reversalChance(defender: Fighter, attacker: Fighter, move: MoveDef): nu
 	return clamp(base * fatiguePenalty * momPenalty, 0, 0.32);
 }
 
-function computeDamage(
+/** Exported so special attacks (rope-run charges, dives) share one damage model. */
+export function computeDamage(
 	attacker: Fighter, defender: Fighter, move: MoveDef, rng: Rng
 ): { dmg: number; crit: boolean } {
 	const strengthScale = 0.75 + statFrac(str(attacker)) * 0.5; // 0.75..1.25
@@ -41,7 +42,7 @@ function computeDamage(
 	const critMul = crit ? 1.45 : 1;
 	const variance = rng.range(0.9, 1.1);
 	// Global scale so matches last minutes (finishers/pins decide, not raw HP).
-	const DAMAGE_SCALE = 0.33;
+	const DAMAGE_SCALE = 0.16;
 	const dmg = move.damage * strengthScale * staminaScale * comboScale * limbScale * critMul * variance * DAMAGE_SCALE;
 	return { dmg: Math.max(1, Math.round(dmg)), crit };
 }

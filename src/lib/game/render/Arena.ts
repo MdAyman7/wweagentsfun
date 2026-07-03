@@ -107,7 +107,15 @@ export class Arena {
 	}
 
 	private buildCrowd(): void {
-		// Instanced spectators in raked tiers around the ring.
+		// Instanced spectators in raked tiers around the ring. Seeded cosmetic
+		// randomness — same crowd every load, no Math.random anywhere.
+		let s = 0x9e3779b9;
+		const rand = () => {
+			s = (s + 0x6d2b79f5) | 0;
+			let t = Math.imul(s ^ (s >>> 15), 1 | s);
+			t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+			return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+		};
 		const seats: { x: number; y: number; z: number; c: THREE.Color }[] = [];
 		const palette = [0x2a3550, 0x3a2a40, 0x402a2a, 0x2a4040, 0x35354a, 0x4a3a2a];
 		for (let row = 0; row < 10; row++) {
@@ -117,9 +125,9 @@ export class Arena {
 			for (let i = 0; i < count; i++) {
 				const a = (i / count) * Math.PI * 2 + row * 0.12;
 				seats.push({
-					x: Math.cos(a) * rad + (Math.random() - 0.5) * 0.2,
-					y, z: Math.sin(a) * rad + (Math.random() - 0.5) * 0.2,
-					c: new THREE.Color(palette[(Math.random() * palette.length) | 0])
+					x: Math.cos(a) * rad + (rand() - 0.5) * 0.2,
+					y, z: Math.sin(a) * rad + (rand() - 0.5) * 0.2,
+					c: new THREE.Color(palette[(rand() * palette.length) | 0])
 				});
 			}
 		}

@@ -78,35 +78,66 @@
 
 		const snap = sim.snapshot();
 
-		// Drive the 3D fighters from the sim. The sim keeps fighters ~1.5+ units
-		// apart, which reads as a distant fight — compress the visual gap and add
-		// an attack lunge so they trade up close and limbs actually connect.
-		const DIST = 0.46;
-		const wx: [number, number] = [0, 0];
+		// Drive the 3D fighters from the sim — full 2D ring (rope runs, dives,
+		// circling), positions 1:1 so the ropes and corners line up visually.
+		const px: [number, number] = [0, 0];
+		const pz: [number, number] = [0, 0];
+		const airY: [number, number] = [0, 0];
 		for (let i = 0; i < 2; i++) {
 			const f = snap.fighters[i];
 			const opp = snap.fighters[1 - i];
-			const dir = opp.posX >= f.posX ? 1 : -1;
-			let x = f.posX * DIST;
-			if (f.actionPhase === 'active') x += dir * 0.3;
-			else if (f.actionPhase === 'windup') x += dir * 0.12;
-			x = Math.max(-(RING.half - 0.3), Math.min(RING.half - 0.3, x));
-			wx[i] = x;
-			f3d[i].root.rotation.y = dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-			f3d[i].applyPose(anim[i].update(f, dt / 1000, simTime, 0));
+			let x = f.posX, z = f.posZ;
+			const dx = opp.posX - f.posX, dz = opp.posZ - f.posZ;
+			const len = Math.hypot(dx, dz) || 1;
+
+			// Attack lunge so limbs connect at contact.
+			if (f.actionPhase === 'active') { x += (dx / len) * 0.3; z += (dz / len) * 0.3; }
+			else if (f.actionPhase === 'windup') { x += (dx / len) * 0.12; z += (dz / len) * 0.12; }
+
+			// Face the opponent — or the direction of travel when running/diving.
+			let yaw = Math.atan2(dx, dz);
+			const sp = f.special;
+			if (sp?.kind === 'rope_run') yaw = Math.atan2(sp.dirX, sp.dirZ);
+			else if (sp?.kind === 'dive' && sp.stage === 'climb') yaw = Math.atan2(sp.cornerX - f.posX + 0.01, sp.cornerZ - f.posZ + 0.01); // face the corner while scaling it
+			else if (sp?.kind === 'dive' && sp.stage === 'perch') yaw = Math.atan2(-f.posX, -f.posZ); // face the ring, ready to fly
+
+			// Turnbuckle climb / dive arc height.
+			if (sp?.kind === 'dive') {
+				const k = Math.min(1, sp.t / sp.total);
+				if (sp.stage === 'climb') {
+					// Walk to the corner first; only rise over the last stretch.
+					airY[i] = Math.max(0, (k - 0.55) / 0.45) * 1.02;
+				} else if (sp.stage === 'perch') airY[i] = 1.02;
+				else airY[i] = 1.02 * (1 - k) + 0.55 * Math.sin(Math.PI * k);
+				// Snap the render position out to the true corner post while up top.
+				if (sp.stage !== 'air') {
+					const snap = sp.stage === 'perch' ? 1 : Math.max(0, (k - 0.55) / 0.45);
+					x += (sp.cornerX * 1.06 - x) * snap;
+					z += (sp.cornerZ * 1.06 - z) * snap;
+				}
+			}
+
+			const lim = RING.half - 0.15;
+			px[i] = Math.max(-lim, Math.min(lim, x));
+			pz[i] = Math.max(-lim, Math.min(lim, z));
+			f3d[i].root.rotation.y = yaw;
+			f3d[i].applyPose(anim[i].update(f, dt / 1000, simTime, airY[i]));
 		}
-		// Don't let them clip through each other.
-		const gap = wx[1] - wx[0];
-		if (Math.abs(gap) < 0.44) {
-			const mid = (wx[0] + wx[1]) / 2, s = Math.sign(gap) || 1;
-			wx[0] = mid - s * 0.22; wx[1] = mid + s * 0.22;
+		// Don't let them clip through each other (unless one is airborne).
+		const gx = px[1] - px[0], gz = pz[1] - pz[0];
+		const gd = Math.hypot(gx, gz);
+		if (gd < 0.5 && !airY[0] && !airY[1]) {
+			const nx = gd > 1e-4 ? gx / gd : 1, nz = gd > 1e-4 ? gz / gd : 0;
+			const push = (0.5 - gd) / 2;
+			px[0] -= nx * push; pz[0] -= nz * push;
+			px[1] += nx * push; pz[1] += nz * push;
 		}
-		f3d[0].root.position.set(wx[0], RING.mat, 0);
-		f3d[1].root.position.set(wx[1], RING.mat, 0);
+		f3d[0].root.position.set(px[0], RING.mat, pz[0]);
+		f3d[1].root.position.set(px[1], RING.mat, pz[1]);
 
 		// Camera frames the action; tightens with crowd energy.
-		focus.set((wx[0] + wx[1]) / 2, 1, 0);
-		cam.update(dt / 1000, focus, Math.abs(wx[0] - wx[1]), snap.crowd);
+		focus.set((px[0] + px[1]) / 2, 1, (pz[0] + pz[1]) / 2);
+		cam.update(dt / 1000, focus, Math.hypot(px[0] - px[1], pz[0] - pz[1]), snap.crowd);
 
 		arena.setEnergy(snap.crowd); arena.update(simTime);
 		stage.setExposure(1.02 + snap.crowd * 0.22);
@@ -124,8 +155,12 @@
 			const e = sim.events[lastEvent];
 			if (e.type === 'move_hit' || e.type === 'signature') cam.shake(0.05);
 			if (e.type === 'finisher' || e.type === 'near_fall' || e.type === 'knockdown') cam.shake(0.1);
+			if (e.type === 'dive_hit' || e.type === 'dive_crash') cam.shake(0.13);
+			if (e.type === 'rope_bounce') cam.shake(0.02);
 			if (e.type === 'phase' || e.type === 'bell') continue;
-			const big = e.type === 'finisher' || e.type === 'near_fall' || e.type === 'win' || e.type === 'count';
+			const big =
+				e.type === 'finisher' || e.type === 'near_fall' || e.type === 'win' || e.type === 'count' ||
+				e.type === 'dive' || e.type === 'dive_hit' || e.type === 'dive_crash' || e.type === 'climb';
 			view.lines = [...view.lines, { id: lineId++, text: e.text, big }].slice(-5);
 		}
 	}

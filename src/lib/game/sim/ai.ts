@@ -15,7 +15,24 @@ export interface Intent {
 	moveId?: string;
 }
 
-const ENGAGE_RANGE = 1.75;
+const ENGAGE_RANGE = 1.45;
+
+/** Moves usable as a rope-run charge payoff. */
+const RUN_MOVES = ['clothesline', 'big_boot', 'dropkick', 'crossbody', 'high_knee'];
+/** Moves usable as a top-rope dive. */
+const DIVE_MOVES = ['moonsault', 'frog_splash', 'senton', 'crossbody', 'dropkick'];
+
+/** How eager each archetype is to run the ropes / fly off the top. */
+function ringUsageAppetite(arch: Archetype): { run: number; dive: number } {
+	switch (arch) {
+		case 'highflyer': return { run: 1.2, dive: 3.2 };
+		case 'showman': return { run: 1.1, dive: 1.6 };
+		case 'brawler': return { run: 1.4, dive: 0.3 };
+		case 'powerhouse': return { run: 1.3, dive: 0.15 };
+		case 'technician': return { run: 0.8, dive: 0.5 };
+		default: return { run: 1.0, dive: 0.8 };
+	}
+}
 
 /** Per-archetype appetite for each move category (multiplier). */
 function categoryWeight(arch: Archetype, cat: MoveCategory): number {
@@ -48,8 +65,8 @@ const hpPct = (f: Fighter): number => clamp01(f.health / f.maxHealth);
 function coverProbability(opp: Fighter, phase: MatchPhase): number {
 	// Opportunistic covers are rare early (and get kicked out — near-falls);
 	// real pins cluster late and after finishers.
-	const base: Record<MatchPhase, number> = { opening: 0.03, build: 0.1, signature: 0.3, finish: 0.55, climax: 0.72 };
-	const weakBonus = (1 - hpPct(opp)) * 0.4;
+	const base: Record<MatchPhase, number> = { opening: 0.02, build: 0.06, signature: 0.16, finish: 0.38, climax: 0.55 };
+	const weakBonus = (1 - hpPct(opp)) * 0.3;
 	return clamp01(base[phase] + weakBonus);
 }
 
@@ -120,14 +137,23 @@ function selectOffense(self: Fighter, opp: Fighter, ctx: DecisionCtx, rng: Rng):
 export function chooseAction(self: Fighter, opp: Fighter, ctx: DecisionCtx, rng: Rng): Intent {
 	const oppDown = opp.stance === 'down' || opp.stance === 'getting_up';
 
-	// Opponent grounded → finish, cover, or (usually) back off and let them up
-	// so the match stays a back-and-forth rather than a ground-and-pound.
+	// Opponent grounded → finish, cover, fly, or (usually) back off and let them
+	// up so the match stays a back-and-forth rather than a ground-and-pound.
 	if (oppDown) {
 		const close = ctx.distance < 1.5;
 		if (self.finisherReady && hpPct(opp) < 0.55 && stamPct(self) > 0.15) {
 			return close ? { kind: 'finisher', moveId: self.def.finisherId } : { kind: 'approach' };
 		}
 		if (close && rng.chance(coverProbability(opp, ctx.phase))) return { kind: 'cover' };
+		// Go up top — the high-risk, high-reward ring spot.
+		const appetite = ringUsageAppetite(self.def.archetype);
+		const diveMoves = self.def.moveIds.filter((id) => DIVE_MOVES.includes(id));
+		if (diveMoves.length && stamPct(self) > 0.3 && opp.stance === 'down') {
+			const lateBonus = ctx.phase === 'signature' || ctx.phase === 'finish' || ctx.phase === 'climax' ? 1.6 : 1;
+			if (rng.chance(clamp01(0.05 * appetite.dive * lateBonus))) {
+				return { kind: 'climb', moveId: diveMoves[rng.int(0, diveMoves.length - 1)] };
+			}
+		}
 		// In the finish/climax, press the advantage; otherwise let them rise.
 		if ((ctx.phase === 'finish' || ctx.phase === 'climax') && ctx.distance > 1.4) return { kind: 'approach' };
 		if (close && rng.chance(0.22)) return selectOffense(self, opp, ctx, rng);
@@ -145,6 +171,20 @@ export function chooseAction(self: Fighter, opp: Fighter, ctx: DecisionCtx, rng:
 		return { kind: 'taunt' };
 	}
 
-	if (ctx.distance > ENGAGE_RANGE) return { kind: 'approach' };
+	// Run the ropes for a full-speed charge — classic spacing play.
+	if (opp.stance === 'standing' && !opp.special && ctx.distance > 1.1 && stamPct(self) > 0.35) {
+		const appetite = ringUsageAppetite(self.def.archetype);
+		const runMoves = self.def.moveIds.filter((id) => RUN_MOVES.includes(id));
+		if (runMoves.length && rng.chance(clamp01(0.035 * appetite.run))) {
+			return { kind: 'rope_run', moveId: runMoves[rng.int(0, runMoves.length - 1)] };
+		}
+	}
+
+	if (ctx.distance > ENGAGE_RANGE) {
+		// Mix straight approaches with circling — square up like a real worker.
+		return rng.chance(0.18) ? { kind: 'circle' } : { kind: 'approach' };
+	}
+	// In range: occasionally strafe for an angle instead of swinging.
+	if (rng.chance(0.1)) return { kind: 'circle' };
 	return selectOffense(self, opp, ctx, rng);
 }

@@ -47,7 +47,7 @@ const ROWS: Row[] = [
 	{ id: 'charlotte_flair', name: 'Charlotte Flair', nick: 'The Queen', align: 'heel', arch: 'technician', build: 'medium',
 		stats: stats(110, 92, 74, 82, 90, 94, 82), moves: [...STRIKES, 'ddt', 'suplex', 'boston_crab', 'ankle_lock', 'big_boot', 'dropkick'], sig: 'big_boot', fin: 'figure_eight',
 		primary: '#f3d33a', secondary: '#e8e8ee', skin: '#e0b48a', height: 1.80 },
-	{ id: 'seth_rollins', name: 'Seth Rollins', nick: 'The Visionary', align: 'heel', arch: 'allrounder', build: 'medium',
+	{ id: 'seth_rollins', name: 'Seth Rollins', nick: 'The Visionary', align: 'heel', arch: 'showman', build: 'medium',
 		stats: stats(110, 96, 78, 88, 88, 93, 80), moves: [...STRIKES, 'clothesline', 'ddt', 'suplex', 'dropkick', 'frog_splash', 'high_knee'], sig: 'superkick', fin: 'curb_stomp',
 		primary: '#14181d', secondary: '#3aa0d9', skin: '#cc9868', height: 1.85 },
 	{ id: 'cm_punk', name: 'CM Punk', nick: 'The Best in the World', align: 'face', arch: 'technician', build: 'medium',

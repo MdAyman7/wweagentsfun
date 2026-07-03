@@ -51,16 +51,21 @@ export class CameraRig {
 
 		if (this.view === 'hard') {
 			this.pos.set(0, 2.6, 8.5);
-			this.look.set(focus.x * 0.4, 1.1, 0);
+			this.look.set(focus.x * 0.4, 1.1, focus.z * 0.3);
 		} else if (this.view === 'drone') {
-			this.pos.set(focus.x, 7.5, 4.2);
-			this.look.set(focus.x, 0.6, 0);
+			this.pos.set(focus.x, 7.5, focus.z + 3.6);
+			this.look.set(focus.x, 0.6, focus.z);
 		} else {
-			// auto — a broadcast three-quarter that tightens on big moments.
+			// auto — a broadcast three-quarter that tightens on big moments and
+			// follows the action anywhere in the ring (corners, rope runs).
 			const dist = 5.5 + spread * 0.6 - intensity * 1.2;
 			const orbit = Math.sin(this.t * 0.15) * 0.25;
-			this.pos.set(focus.x * 0.6 + Math.sin(orbit) * dist, 2.4 - intensity * 0.3, Math.cos(orbit) * dist + 2.5);
-			this.look.set(focus.x * 0.7, 1.0, 0);
+			this.pos.set(
+				focus.x * 0.6 + Math.sin(orbit) * dist,
+				2.4 - intensity * 0.3,
+				focus.z * 0.5 + Math.cos(orbit) * dist + 2.5
+			);
+			this.look.set(focus.x * 0.7, 1.0, focus.z * 0.7);
 		}
 
 		const k = 1 - Math.exp(-6 * dt);
